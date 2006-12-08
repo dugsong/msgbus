@@ -19,10 +19,11 @@
 #include "evhttp.h"
 #include "http-internal.h"
 
-#include "msgbus.h"
 #include "auth.h"
 #include "match.h"
 #include "mimetype.h"
+
+#define BOUNDARY_MARKER		"00MsgBus00"
 
 struct msgbus_ctx {
 	char		*address;
