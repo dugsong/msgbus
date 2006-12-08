@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# $Id$
+
 import base64, httplib, optparse, os, sys
 
 def main():
