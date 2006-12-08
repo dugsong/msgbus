@@ -17,7 +17,7 @@
 
 #include "event.h"
 #include "evhttp.h"
-#include "http-internal.h"
+//#include "http-internal.h"
 
 #include "auth.h"
 #include "match.h"
@@ -34,12 +34,12 @@ struct msgbus_ctx {
 struct msgbus_channel;
 
 struct msgbus_sub {
-	struct evhttp_connection *evcon;
-	struct msgbus_channel	 *channel;
-	char			 *sender;
-	char			 *type;
-	struct event		  ev;
-	TAILQ_ENTRY(msgbus_sub)	  next;
+	struct evhttp_request	*req;
+	struct msgbus_channel	*channel;
+	char			*sender;
+	char			*type;
+	struct event		 ev;
+	TAILQ_ENTRY(msgbus_sub)	 next;
 };
 TAILQ_HEAD(msgbus_subs, msgbus_sub);
 
@@ -59,10 +59,16 @@ _channel_cmp(struct msgbus_channel *a, struct msgbus_channel *b)
 SPLAY_PROTOTYPE(msgbus_channel_tree, msgbus_channel, next, _channel_cmp);
 SPLAY_GENERATE(msgbus_channel_tree, msgbus_channel, next, _channel_cmp);
 
-static void
-__debug_write(struct evhttp_connection *evcon, void *arg)
+static const char *
+_evhttp_peername(struct evhttp_connection *evcon)
 {
-	//printf("done write\n");
+	static char buf[128];
+	char *address;
+	u_short port;
+
+	evhttp_connection_get_peer(evcon, &address, &port);
+	snprintf(buf, sizeof(buf), "%s:%d", address, port);
+	return (buf);
 }
 
 static void
@@ -71,50 +77,54 @@ msgbus_deliver(const char *channel, const char *sender, const char *type,
 {
 	struct msgbus_channel *chan, find = { .name = (char *)channel };
 	struct msgbus_sub *sub;
-	struct evbuffer *out;
+	struct evbuffer *out = NULL;
 
-	if ((chan = SPLAY_FIND(msgbus_channel_tree,
-		 &msgbus_channels, &find)) == NULL)
+	if ((chan = SPLAY_FIND(msgbus_channel_tree, &msgbus_channels,
+		 &find)) == NULL) {
 		return;
-	
+	}
 	TAILQ_FOREACH(sub, &chan->subs, next) {
 		if ((sub->sender == NULL || sender == NULL ||
-			match_pattern_list(sender, sub->sender,
-			    strlen(sub->sender), 0) == 1) &&
+		     match_pattern_list(sender, sub->sender,
+			 strlen(sub->sender), 0) == 1) &&
 		    (sub->type == NULL || match_pattern_list(type, sub->type,
 			strlen(sub->type), 0) == 0)) {
-			out = sub->evcon->output_buffer;
-			if (sender != NULL)
-				evbuffer_add_printf(out, "From: %s\n", sender);
-			evbuffer_add_printf(out, "Content-Type: %s\n"
-			    "Content-Length: %d\n\n", type, len);
-			evbuffer_add(out, buf, len);
-			evbuffer_add_printf(out, "--%s\n", BOUNDARY_MARKER);
-			evhttp_write_buffer(sub->evcon, __debug_write, NULL);
+			if (out == NULL) {
+				out = evbuffer_new();
+				if (sender != NULL)
+					evbuffer_add_printf(out, "From: %s\n",
+					    sender);
+				evbuffer_add_printf(out, "Content-Type: %s\n"
+				    "Content-Length: %d\n\n", type, len);
+				evbuffer_add(out, buf, len);
+				evbuffer_add_printf(out, "--%s\n",
+				    BOUNDARY_MARKER);
+			}
+			evhttp_send_reply_data(sub->req, out);
 		}
 	}
+	if (out != NULL)
+		evbuffer_free(out);
 }
 
 void
-msgbus_sub_close(int fd, short event, void *arg)
+msgbus_sub_close(struct evhttp_connection *evcon, void *arg)
 {
 	struct msgbus_sub *sub = (struct msgbus_sub *)arg;
+	struct msgbus_channel *chan = sub->channel;
 	
-	printf("UNSUB %s:%d %s %s %s\n", sub->evcon->address,
-	    sub->evcon->port, sub->channel->name,
-	    sub->sender ? sub->sender : "*",
+	printf("UNSUB %s %s %s %s\n", _evhttp_peername(evcon),
+	    chan->name, sub->sender ? sub->sender : "*",
 	    sub->type ? sub->type : "*");
-
-	TAILQ_REMOVE(&sub->channel->subs, sub, next);
+	
+	TAILQ_REMOVE(&chan->subs, sub, next);
 	
 	/* Close channel if we're the last subscriber */
-	if (TAILQ_EMPTY(&sub->channel->subs)) {
-		SPLAY_REMOVE(msgbus_channel_tree, &msgbus_channels,
-		    sub->channel);
-		free(sub->channel->name);
-		free(sub->channel);
+	if (TAILQ_EMPTY(&chan->subs)) {
+		SPLAY_REMOVE(msgbus_channel_tree, &msgbus_channels, chan);
+		free(chan->name);
+		free(chan);
 	}
-	evhttp_connection_free(sub->evcon);
 	free(sub->sender);
 	free(sub->type);
 	free(sub);
@@ -135,17 +145,17 @@ msgbus_sub_open(struct evhttp_request *req,
 		TAILQ_INIT(&chan->subs);
 		SPLAY_INSERT(msgbus_channel_tree, &msgbus_channels, chan);
 	}
-	sub->evcon = req->evcon;
+	sub->req = req;
 	sub->channel = chan;
 	if (sender != NULL) sub->sender = strdup(sender);
 	if (type != NULL) sub->type = strdup(type);
-	
-	event_set(&sub->ev, sub->evcon->fd, EV_READ, msgbus_sub_close, sub);
-	event_add(&sub->ev, NULL);
+
+	/* Clean up subscription on connection close. */
+	evhttp_connection_set_closecb(req->evcon, msgbus_sub_close, sub);
 	
 	TAILQ_INSERT_TAIL(&chan->subs, sub, next);
 
-	printf("SUB %s:%d %s %s %s\n", req->evcon->address, req->evcon->port,
+	printf("SUB %s %s %s %s\n", _evhttp_peername(req->evcon),
 	    sub->channel->name, sub->sender ? sub->sender : "*",
 	    sub->type ? sub->type : "*");
 }
@@ -191,38 +201,36 @@ void
 msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
     const char *channel)
 {
-	struct evkeyvalq params;
-	
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
 	{
+		struct evbuffer *buf = evbuffer_new();
+		struct evkeyvalq params;
+	
 		evhttp_parse_query(req->uri, &params);
-		
 		msgbus_sub_open(req, channel,
 		    evhttp_find_header(&params, "sender"),
 		    evhttp_find_header(&params, "type"));
+		evhttp_clear_headers(&params);
 		
-		evhttp_response_code(req, HTTP_OK, "OK");
 		evhttp_add_header(req->output_headers, "Content-Type",
 		    "multipart/x-mixed-replace;boundary=" BOUNDARY_MARKER);
-		evhttp_make_header(req->evcon, req);
-		evbuffer_add_printf(req->evcon->output_buffer, "--%s\n",
-		    BOUNDARY_MARKER);
-		evhttp_write_buffer(req->evcon, __debug_write, NULL);
+		evbuffer_add_printf(buf, "--%s\n", BOUNDARY_MARKER);
+		evhttp_send_reply_start(req, HTTP_OK, "OK");
+		evhttp_send_reply_data(req, buf);
+		evbuffer_free(buf);
 		break;
 	}
 	case EVHTTP_REQ_POST:
 	{
 		const char *sender, *type;
 		
-		evhttp_parse_query(req->uri, &params);
 		sender = auth_parse(evhttp_find_header(req->input_headers,
 					"Authorization"));
 		type = evhttp_find_header(req->input_headers, "Content-Type");
 
-		printf("PUB %s:%d %s %s %s (%ld)\n", req->evcon->address,
-		    req->evcon->port, channel, sender ? sender : "*",
-		    type ? type : "*",
+		printf("PUB %s %s %s %s (%ld)\n", _evhttp_peername(req->evcon),
+		    channel, sender ? sender : "*", type ? type : "*",
 		    (long)EVBUFFER_LENGTH(req->input_buffer));
 		
 		msgbus_deliver(channel, sender, type,
@@ -259,8 +267,8 @@ msgbus_doc_handler(struct msgbus_ctx *ctx, struct evhttp_request *req)
 			evhttp_add_header(req->output_headers,
 			    "Content-Length", size);
 			evhttp_send_reply(req, HTTP_OK, "OK", buf);
-			printf("DOC %s:%d %s (%ld)\n", req->evcon->address,
-			    req->evcon->port, req->uri, len);
+			printf("DOC %s %s (%ld)\n",
+			    _evhttp_peername(req->evcon), req->uri, len);
 		} else {
 			evbuffer_add_printf(buf, "<h1>Not Found</h1>");
 			evhttp_send_reply(req, HTTP_NOTFOUND,
@@ -287,6 +295,8 @@ msgbus_req_handler(struct evhttp_request *req, void *arg)
 		} else if (ctx->docroot != NULL) {
 			msgbus_doc_handler(ctx, req);
 		}
+	} else {
+		printf("got NULL request - connection_fail?\n");
 	}
 }
 
