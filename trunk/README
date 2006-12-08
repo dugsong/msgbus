@@ -1,0 +1,31 @@
+lightweight HTTP publish/subscribe message bus based on libevent.
+
+to publish JPEGs as messages on the 'foo' channel:
+
+    POST /msgbus/foo HTTP/1.1
+    Content-Type: image/jpeg
+    Content-Length: 342
+    ...
+
+to subscribe to all messages the 'foo' channel:
+
+    GET /msgbus/foo HTTP/1.1
+
+matching messages are returned in server-push mode, e.g.
+
+    HTTP/1.1 200 OK
+    Content-Type: multipart/x-mixed-replace;boundary=XXX
+
+    --XXX
+    Content-Type: image/jpeg
+    Content-Length: 320
+    ...
+    --XXX
+    Content-Type: text/html
+    Content-Length: 53
+    ...
+
+to subscribe to only text messages on the 'foo' channel:
+
+    GET /msgbus/foo?type=text/* HTTP/1.1
+
