@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 
+# $Id$
+
 import httplib, optparse, re, sys, time, urllib
 
 def main():
