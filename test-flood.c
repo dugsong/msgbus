@@ -59,7 +59,7 @@ main(int argc, char *argv[])
 	if ((evcon = evhttp_connection_new("localhost", 8080)) == NULL)
 		errx(1, "connection failed");
 
-	//evhttp_connection_set_retries(evcon, -1);
+	evhttp_connection_set_retries(evcon, -1);
 	
 	evtimer_set(&time_ev, send_msg, evcon);
 	event_add(&time_ev, &time_tv);
