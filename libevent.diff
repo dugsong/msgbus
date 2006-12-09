@@ -1,272 +1,81 @@
 Index: http.c
 ===================================================================
---- http.c	(revision 294)
+--- http.c	(revision 300)
 +++ http.c	(working copy)
-@@ -55,6 +55,7 @@
- #endif
+@@ -643,6 +643,7 @@
  
- #include <assert.h>
-+#include <ctype.h>
- #include <errno.h>
- #include <stdio.h>
- #include <stdlib.h>
-@@ -469,8 +470,11 @@
- 		 * For HTTP problems, we might have to send back a
- 		 * reply before the connection can be freed.
- 		 */
--		if (evhttp_connection_incoming_fail(req, error) == -1)
-+		if (evhttp_connection_incoming_fail(req, error) == -1) {
-+			if (evcon->closecb != NULL)
-+				(*evcon->closecb)(evcon, evcon->closecb_arg);
- 			evhttp_connection_free(evcon);
-+		}
- 		return;
+ 	/* notify interested parties that this connection is going down */
+ 	if (evcon->fd != -1) {
++		close(evcon->fd);
+ 		if (evcon->closecb != NULL)
+ 			(*evcon->closecb)(evcon, evcon->closecb_arg);
  	}
+@@ -661,9 +662,6 @@
+ 	if (event_initialized(&evcon->ev))
+ 		event_del(&evcon->ev);
+ 	
+-	if (evcon->fd != -1)
+-		close(evcon->fd);
+-
+ 	if (evcon->address != NULL)
+ 		free(evcon->address);
  
-@@ -522,7 +526,8 @@
- 	}
- 
- 	/* Activate our call back */
--	(*evcon->cb)(evcon, evcon->cb_arg);
-+	if (evcon->cb != NULL)
-+		(*evcon->cb)(evcon, evcon->cb_arg);
- }
- 
- void
-@@ -710,13 +715,16 @@
- evhttp_detect_close_cb(int fd, short what, void *arg)
+@@ -729,18 +727,18 @@
+ evhttp_connection_start_detectclose(struct evhttp_connection *evcon)
  {
- 	struct evhttp_connection *evcon = arg;
--	evhttp_connection_reset(evcon);
+ 	evcon->flags |= EVHTTP_CON_CLOSEDETECT;
+-	
+-	event_del(&evcon->ev);
+-	event_set(&evcon->ev, evcon->fd, EV_READ,
 +
-+	if (evcon->closecb != NULL)
-+		(*evcon->closecb)(evcon, evcon->closecb_arg);
-+	/* XXX is this right? */
-+	evhttp_connection_free(evcon);
++	event_del(&evcon->close_ev);
++	event_set(&evcon->close_ev, evcon->fd, EV_READ,
+ 	    evhttp_detect_close_cb, evcon);
+-	event_add(&evcon->ev, NULL);
++	event_add(&evcon->close_ev, NULL);
  }
  
  static void
- evhttp_connection_start_detectclose(struct evhttp_connection *evcon)
+ evhttp_connection_stop_detectclose(struct evhttp_connection *evcon)
  {
--	assert((evcon->flags & EVHTTP_REQ_OWN_CONNECTION) == 0);
- 	evcon->flags |= EVHTTP_CON_CLOSEDETECT;
- 	
- 	event_del(&evcon->ev);
-@@ -732,6 +740,15 @@
- 	event_del(&evcon->ev);
+ 	evcon->flags &= ~EVHTTP_CON_CLOSEDETECT;
+-	event_del(&evcon->ev);
++	event_del(&evcon->close_ev);
  }
  
-+static void
-+evhttp_connection_retry(int fd, short what, void *arg)
-+{
-+	struct evhttp_connection *evcon = arg;
-+
-+	evcon->state = EVCON_DISCONNECTED;
-+	evhttp_connection_connect(evcon);
-+}
-+
- /*
-  * Call back for asynchronous connection attempt.
-  */
-@@ -775,6 +792,13 @@
- 	return;
- 
-  cleanup:
-+	if (evcon->retry_max < 0 || evcon->retry_cnt < evcon->retry_max) {
-+		evtimer_set(&evcon->ev, evhttp_connection_retry, evcon);
-+		evhttp_add_event(&evcon->ev, 2 << evcon->retry_cnt,
-+		    HTTP_CONNECT_TIMEOUT);
-+		evcon->retry_cnt++;
-+		return;
-+	}
- 	evhttp_connection_reset(evcon);
- 
- 	/* for now, we just signal all requests by executing their callbacks */
-@@ -888,8 +912,8 @@
- 		return (-1);
- 	}
- 
--	if ((req->uri = strdup(uri)) == NULL) {
--		event_warn("%s: strdup", __func__);
-+	if ((req->uri = evhttp_decode_uri(uri)) == NULL) {
-+		event_warn("%s: evhttp_decode_uri", __func__);
- 		return (-1);
- 	}
- 
-@@ -1221,6 +1245,30 @@
- 	evcon->timeout = timeout_in_secs;
- }
- 
-+void
-+evhttp_connection_set_retries(struct evhttp_connection *evcon,
-+    int retry_max)
-+{
-+	evcon->retry_max = retry_max;
-+}
-+
-+void
-+evhttp_connection_set_closecb(struct evhttp_connection *evcon,
-+    void (*cb)(struct evhttp_connection *, void *), void *cbarg)
-+{
-+	evcon->closecb = cb;
-+	evcon->closecb_arg = cbarg;
-+	evhttp_connection_start_detectclose(evcon);
-+}
-+
-+void
-+evhttp_connection_get_peer(struct evhttp_connection *evcon,
-+    char **address, u_short *port)
-+{
-+	*address = evcon->address;
-+	*port = evcon->port;
-+}
-+
- int
- evhttp_connection_connect(struct evhttp_connection *evcon)
+ static void
+@@ -1264,13 +1262,6 @@
  {
-@@ -1372,8 +1420,9 @@
- 	assert(TAILQ_FIRST(&evcon->requests) == req);
- 
- 	/* xxx: not sure if we really should expose the data buffer this way */
--	evbuffer_add_buffer(req->output_buffer, databuf);
--
-+	if (databuf != NULL)
-+		evbuffer_add_buffer(req->output_buffer, databuf);
-+	
- 	/* Adds headers to the response */
- 	evhttp_make_header(evcon, req);
- 
-@@ -1390,6 +1439,29 @@
+ 	evcon->closecb = cb;
+ 	evcon->closecb_arg = cbarg;
+-	/* 
+-	 * applications that stream to clients forever might want to
+-	 * detect when a browser or client has stopped receiving the
+-	 * stream.  this would be detected on the next write in any case,
+-	 * however, we can release resources earlier using this.
+-	 */
+-	evhttp_connection_start_detectclose(evcon);
  }
  
  void
-+evhttp_send_reply_start(struct evhttp_request *req, int code,
-+    const char *reason)
-+{
-+	evhttp_response_code(req, code, reason);
-+	evhttp_make_header(req->evcon, req);
-+	evhttp_write_buffer(req->evcon, NULL, NULL);
-+}
-+
-+void
-+evhttp_send_reply_data(struct evhttp_request *req, struct evbuffer *databuf)
-+{
-+	evbuffer_add_buffer(req->evcon->output_buffer, databuf);
-+	evhttp_write_buffer(req->evcon, NULL, NULL);
-+}
-+
-+void
-+evhttp_send_reply_done(struct evhttp_request *req)
-+{
-+	req->evcon->cb = evhttp_send_done;
-+	req->evcon->cb_arg = NULL;
-+}
-+
-+void
- evhttp_response_code(struct evhttp_request *req, int code, const char *reason)
+@@ -1457,6 +1448,8 @@
+ evhttp_send_reply_start(struct evhttp_request *req, int code,
+     const char *reason)
  {
- 	req->kind = EVHTTP_RESPONSE;
-@@ -1417,9 +1489,37 @@
- 	evhttp_send(req, databuf);
- }
- 
-+char *
-+evhttp_decode_uri(const char *path)
-+{
-+	char c, *ret;
-+	int i, j, in_query = 0;
-+	
-+	ret = malloc(strlen(path) + 1);
-+
-+	for (i = j = 0; path[i] != '\0'; i++) {
-+		c = path[i];
-+		if (c == '?') {
-+			in_query = 1;
-+		} else if (c == '+' && in_query) {
-+			c = ' ';
-+		} else if (c == '%' && isxdigit(path[i+1]) &&
-+		    isxdigit(path[i+2])) {
-+			char tmp[] = { path[i+1], path[i+2], '\0' };
-+			c = (char)strtol(tmp, NULL, 16);
-+			i += 2;
-+		}
-+		ret[j++] = c;
-+	}
-+	ret[j] = '\0';
-+	
-+	return (ret);
-+}
-+
- /* 
-  * Helper function to parse out arguments in a query.
-  * The arguments are separated by key and value.
-+ * URI should already be decoded.
-  */
- 
- void
-Index: evhttp.h
-===================================================================
---- evhttp.h	(revision 294)
-+++ evhttp.h	(working copy)
-@@ -87,6 +87,11 @@
- void evhttp_send_reply(struct evhttp_request *, int, const char *,
-     struct evbuffer *);
- 
-+/* Low-level response interface, for streaming/chunked replies */
-+void evhttp_send_reply_start(struct evhttp_request *, int, const char *);
-+void evhttp_send_reply_data(struct evhttp_request *, struct evbuffer *);
-+void evhttp_send_reply_done(struct evhttp_request *);
-+	
- /* Interfaces for making requests */
- enum evhttp_cmd_type { EVHTTP_REQ_GET, EVHTTP_REQ_POST, EVHTTP_REQ_HEAD };
- 
-@@ -160,6 +165,18 @@
- void evhttp_connection_set_timeout(struct evhttp_connection *evcon,
-     int timeout_in_secs);
- 
-+/* Sets the retry limit for this connection - -1 repeats indefnitely */
-+void evhttp_connection_set_retries(struct evhttp_connection *evcon,
-+    int retry_max);
-+
-+/* Set a callback for connection close. */
-+void evhttp_connection_set_closecb(struct evhttp_connection *evcon,
-+    void (*)(struct evhttp_connection *, void *), void *);
-+
-+/* Get the remote address and port associated with this connection. */
-+void evhttp_connection_get_peer(struct evhttp_connection *evcon,
-+    char **address, u_short *port);
-+
- /* The connection gets ownership of the request */
- int evhttp_make_request(struct evhttp_connection *evcon,
-     struct evhttp_request *req,
-@@ -175,6 +192,7 @@
- void evhttp_clear_headers(struct evkeyvalq *);
- 
- /* Miscellaneous utility functions */
-+char *evhttp_decode_uri(const char *path);
- void evhttp_parse_query(const char *uri, struct evkeyvalq *);
- char *evhttp_htmlescape(const char *html);
- #ifdef __cplusplus
++	/* set up to watch for client close */
++	evhttp_connection_start_detectclose(req->evcon);
+ 	evhttp_response_code(req, code, reason);
+ 	evhttp_make_header(req->evcon, req);
+ 	evhttp_write_buffer(req->evcon, NULL, NULL);
 Index: http-internal.h
 ===================================================================
---- http-internal.h	(revision 294)
+--- http-internal.h	(revision 300)
 +++ http-internal.h	(working copy)
-@@ -53,6 +53,8 @@
- #define EVHTTP_CON_CLOSEDETECT  0x0004  /* detecting if persistent close */
+@@ -41,6 +41,7 @@
  
- 	int timeout;			/* timeout in seconds for events */
-+	int retry_cnt;			/* retry count */
-+	int retry_max;			/* maximum number of retries */
+ 	int fd;
+ 	struct event ev;
++	struct event close_ev;
+ 	struct evbuffer *input_buffer;
+ 	struct evbuffer *output_buffer;
  	
- 	enum evhttp_connection_state state;
- 
-@@ -63,6 +65,9 @@
- 	
- 	void (*cb)(struct evhttp_connection *, void *);
- 	void *cb_arg;
-+	
-+	void (*closecb)(struct evhttp_connection *, void *);
-+	void *closecb_arg;
- };
- 
- struct evhttp_cb {
