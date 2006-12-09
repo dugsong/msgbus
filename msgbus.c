@@ -95,8 +95,13 @@ msgbus_deliver(const char *channel, const char *sender, const char *type,
 			struct evbuffer *out = evbuffer_new();
 			if (sender != NULL)
 				evbuffer_add_printf(out, "From: %s\n", sender);
-			evbuffer_add_printf(out, "Content-Type: %s\n"
-			    "Content-Length: %d\n\n", type, len);
+			evbuffer_add_printf(out, "Content-Type: %s\n", type);
+			if (sub->req->minor != 1) {
+				/* not chunked encoding */
+				evbuffer_add_printf(out,
+				    "Content-Length: %d\n", len);
+			}
+			evbuffer_add(out, "\n", 1);
 			evbuffer_add(out, buf, len);
 			evbuffer_add_printf(out, "--%s\n", BOUNDARY_MARKER);
 			evhttp_send_reply_data(sub->req, out);
