@@ -2,25 +2,17 @@ Index: http.c
 ===================================================================
 --- http.c	(revision 300)
 +++ http.c	(working copy)
-@@ -643,6 +643,7 @@
- 
- 	/* notify interested parties that this connection is going down */
- 	if (evcon->fd != -1) {
-+		close(evcon->fd);
- 		if (evcon->closecb != NULL)
- 			(*evcon->closecb)(evcon, evcon->closecb_arg);
+@@ -658,6 +658,9 @@
+ 		TAILQ_REMOVE(&http->connections, evcon, next);
  	}
-@@ -661,9 +662,6 @@
+ 
++	if (event_initialized(&evcon->close_ev))
++		event_del(&evcon->close_ev);
++
  	if (event_initialized(&evcon->ev))
  		event_del(&evcon->ev);
  	
--	if (evcon->fd != -1)
--		close(evcon->fd);
--
- 	if (evcon->address != NULL)
- 		free(evcon->address);
- 
-@@ -729,18 +727,18 @@
+@@ -729,18 +732,18 @@
  evhttp_connection_start_detectclose(struct evhttp_connection *evcon)
  {
  	evcon->flags |= EVHTTP_CON_CLOSEDETECT;
@@ -44,7 +36,7 @@ Index: http.c
  }
  
  static void
-@@ -1264,13 +1262,6 @@
+@@ -1264,13 +1267,6 @@
  {
  	evcon->closecb = cb;
  	evcon->closecb_arg = cbarg;
@@ -58,15 +50,55 @@ Index: http.c
  }
  
  void
-@@ -1457,6 +1448,8 @@
+@@ -1448,6 +1444,8 @@
+ evhttp_send_reply(struct evhttp_request *req, int code, const char *reason,
+     struct evbuffer *databuf)
+ {
++	/* set up to watch for client close */
++	evhttp_connection_start_detectclose(req->evcon);
+ 	evhttp_response_code(req, code, reason);
+ 	
+ 	evhttp_send(req, databuf);
+@@ -1457,7 +1455,14 @@
  evhttp_send_reply_start(struct evhttp_request *req, int code,
      const char *reason)
  {
 +	/* set up to watch for client close */
 +	evhttp_connection_start_detectclose(req->evcon);
  	evhttp_response_code(req, code, reason);
++	if (req->minor == 1) {
++		/* use chunked encoding */
++		evhttp_add_header(req->output_headers, "Transfer-Encoding",
++		    "chunked");
++	}
  	evhttp_make_header(req->evcon, req);
  	evhttp_write_buffer(req->evcon, NULL, NULL);
+ }
+@@ -1465,6 +1470,11 @@
+ void
+ evhttp_send_reply_data(struct evhttp_request *req, struct evbuffer *databuf)
+ {
++	if (req->minor == 1) {
++		/* use chunked encoding */
++		evbuffer_add_printf(req->evcon->output_buffer, "%x\r\n",
++		    EVBUFFER_LENGTH(databuf));
++	}
+ 	evbuffer_add_buffer(req->evcon->output_buffer, databuf);
+ 	evhttp_write_buffer(req->evcon, NULL, NULL);
+ }
+@@ -1474,7 +1484,11 @@
+ {
+ 	struct evhttp_connection *evcon = req->evcon;
+ 
+-	if (!event_pending(&evcon->ev, EV_WRITE|EV_TIMEOUT, NULL)) {
++	if (req->minor == 1) {
++		/* use chunked encoding */
++		evbuffer_add(req->evcon->output_buffer, "0\r\n\r\n", 5);
++		evhttp_write_buffer(req->evcon, evhttp_send_done, NULL);
++	} else if (!event_pending(&evcon->ev, EV_WRITE|EV_TIMEOUT, NULL)) {
+ 		/* let the connection know that we are done with the request */
+ 		evhttp_send_done(evcon, NULL);
+ 	} else {
 Index: http-internal.h
 ===================================================================
 --- http-internal.h	(revision 300)
