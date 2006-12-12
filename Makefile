@@ -1,14 +1,19 @@
 
-CFLAGS=	-g -Wall -O2 -I./libevent -I./libevent/compat
+CFLAGS=		-g -Wall -O2 -I./libevent -I./libevent/compat
 
-LDADD=	-L./libevent -levent -lresolv
+event_LDADD=	-L./libevent -levent -lresolv
 
-PROGS=	msgbus test-flood
+LIBS=		evmsg
+evmsg_SRCS=	evmsg.c
+NOPROFILE=	yes
 
+PROGS=		msgbus test-flood test-sub
 msgbus_SRCS=	auth.c match.c mimetype.c msgbus.c
-
+msgbus_LDADD=	${event_LDADD}
 test-flood_SRCS= test-flood.c
-
-NOMAN=	yes
+test-flood_LDADD= -L. -levmsg ${event_LDADD}
+test-sub_SRCS=	test-sub.c
+test-sub_LDADD=	-L. -levmsg ${event_LDADD}
+NOMAN=		yes
 
 .include "auto.mk"
