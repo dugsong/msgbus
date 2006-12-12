@@ -104,7 +104,7 @@ msgbus_deliver(const char *channel, const char *sender, const char *type,
 			evbuffer_add(out, "\n", 1);
 			evbuffer_add(out, buf, len);
 			evbuffer_add_printf(out, "--%s\n", BOUNDARY_MARKER);
-			evhttp_send_reply_data(sub->req, out);
+			evhttp_send_reply_chunk(sub->req, out);
 			evbuffer_free(out);
 		}
 	}
@@ -151,9 +151,11 @@ msgbus_sub_open(struct evhttp_request *req,
 	sub = calloc(1, sizeof(*sub));
 	sub->req = req;
 	sub->channel = chan;
-	if (sender != NULL) sub->sender = strdup(sender);
-	if (type != NULL) sub->type = strdup(type);
-
+	if (sender != NULL && strcmp(sender, "*") != 0)
+		sub->sender = strdup(sender);
+	if (type != NULL && strcmp(type, "*") != 0)
+		sub->type = strdup(type);
+	
 	/* Clean up subscription on connection close. */
 	evhttp_connection_set_closecb(req->evcon, msgbus_sub_close, sub);
 	
@@ -221,7 +223,7 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 		    "multipart/x-mixed-replace;boundary=" BOUNDARY_MARKER);
 		evbuffer_add_printf(buf, "--%s\n", BOUNDARY_MARKER);
 		evhttp_send_reply_start(req, HTTP_OK, "OK");
-		evhttp_send_reply_data(req, buf);
+		evhttp_send_reply_chunk(req, buf);
 		evbuffer_free(buf);
 		break;
 	}
