@@ -21,9 +21,9 @@ struct evmsg_conn {
 	struct event		  ev;
 	struct timeval		  tv;
 	struct evhttp_connection *evcon;
+	char			 *channel;
 	struct evbuffer		 *uri;
-	void (*cb)(const char *type, const char *sender,
-	    struct evbuffer *msg, void *arg);
+	evmsg_subscribe_cb	  cb;
 	void			 *arg;
 	int			  boundary_len;
 	TAILQ_ENTRY(evmsg_conn)	  next;
@@ -78,7 +78,13 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 		EVBUFFER_LENGTH(buf) -= conn->boundary_len;
 		EVBUFFER_DATA(buf)[EVBUFFER_LENGTH(buf)] = '\0';
 		if (evhttp_find_header(kv, "Content-Type") != NULL) {
-			(*conn->cb)(evhttp_find_header(kv, "Content-Type"),
+			const char *chan = conn->channel;
+			if (*chan == '\0') {
+				chan = evhttp_find_header(kv,
+				    "Content-Location");
+			}
+			(*conn->cb)(chan,
+			    evhttp_find_header(kv, "Content-Type"),
 			    evhttp_find_header(kv, "From"), buf, conn->arg);
 		}
 		evhttp_clear_headers(kv);
@@ -178,13 +184,14 @@ evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
 
 void *
 evmsg_subscribe(const char *channel, const char *type, const char *sender,
-    void (*callback)(const char *type, const char *sender,
+    void (*callback)(const char *channel, const char *type, const char *sender,
 	struct evbuffer *buf, void *arg), void *arg)
 {
 	struct evmsg_conn *conn;
 	
 	conn = calloc(1, sizeof(*conn));
 	conn->uri = evbuffer_new();
+	conn->channel = strdup(channel);
 	evbuffer_add_printf(conn->uri, "/msgbus/%s?type=%s&sender=%s",
 	    channel, type ? type : "*", sender ? sender : "*");
 	__uri_escape(conn->uri);
@@ -207,6 +214,7 @@ evmsg_unsubscribe(void *arg)
 	evhttp_connection_free(conn->evcon);
 	if (conn->uri != NULL)
 		evbuffer_free(conn->uri);
+	free(conn->channel);
 	free(conn);
 }
 
@@ -217,10 +225,7 @@ evmsg_close(void)
 
 	/* Shutdown all our connections. */
 	while ((conn = TAILQ_FIRST(&ctx->conns)) != NULL) {
-		TAILQ_REMOVE(&ctx->conns, conn, next);
-		evhttp_connection_free(conn->evcon);
-		if (conn->uri != NULL)
-			evbuffer_free(conn->uri);
+		evmsg_unsubscribe(conn);
 	}
 	free(ctx->auth);
 	free(ctx->server);

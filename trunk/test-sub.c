@@ -12,9 +12,10 @@
 #include "evmsg.h"
 
 void
-recv_msg(const char *type, const char *sender, struct evbuffer *msg, void *arg)
+recv_msg(const char *channel, const char *type, const char *sender,
+    struct evbuffer *msg, void *arg)
 {
-	printf("%s %s [%s]\n", type, sender, EVBUFFER_DATA(msg));
+	printf("%s %s %s [%s]\n", channel, type, sender, EVBUFFER_DATA(msg));
 }
 
 int
