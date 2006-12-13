@@ -1,3 +1,4 @@
+/* $Id$ */
 
 #include <sys/types.h>
 #include <sys/time.h>
@@ -16,16 +17,22 @@
 #include "evmsg.h"
 
 struct evmsg_conn {
+	struct event		  ev;
+	struct timeval		  tv;
 	struct evhttp_connection *evcon;
+	struct evbuffer		 *uri;
 	void (*cb)(const char *type, const char *sender,
 	    struct evbuffer *msg, void *arg);
 	void			 *arg;
+	int			  boundary_len;
 	TAILQ_ENTRY(evmsg_conn)	  next;
 };
-TAILQ_HEAD(, evmsg_conn)  evmsg_conns;
-char			 *evmsg_server;
-u_short			  evmsg_port;
-char 			 *evmsg_auth;
+struct evmsg_ctx {
+	TAILQ_HEAD(, evmsg_conn)  conns;
+	char			 *server;
+	u_short			  port;
+	char 			 *auth;
+} ctx[1];
 
 static void
 __publish_cb(struct evhttp_request *req, void *arg)
@@ -35,23 +42,25 @@ __publish_cb(struct evhttp_request *req, void *arg)
 static void
 __subscribe_cb(struct evhttp_request *req, void *arg)
 {
-	static int boundary_len;
 	struct evmsg_conn *conn = arg;
-	struct evbuffer *buf = req->input_buffer;
-	struct evkeyvalq kv[1];
-	char *p;
-
-	TAILQ_INIT(kv);
-
+	
+	if (req == NULL || req->evcon == NULL) {
+		return;
+	}
 	/* Parse the multipart boundary, once. */
-	if (boundary_len == 0) {
+	if (conn->boundary_len == 0) {
 		const char *t = evhttp_find_header(req->input_headers,
 		    "Content-Type");
 		t = strchr(t, '=') + 1;
-		boundary_len = 2 + strlen(t) + 1;
+		conn->boundary_len = 2 + strlen(t) + 1;
 	}
 	if (conn->cb != NULL) {
 		/* Parse buffer for internal hdrs */
+		struct evbuffer *buf = req->input_buffer;
+		struct evkeyvalq kv[1];
+		char *p;
+		
+		TAILQ_INIT(kv);
 		while ((p = evbuffer_readline(buf)) != NULL && p[0] != '\0') {
 			char *k = strsep(&p, ":");
 			if (p != NULL && (strcasecmp(k, "Content-Type") == 0 ||
@@ -63,27 +72,50 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 		}
 		/*
 		 * XXX - assume msgbus' chunks correspond to multipart
-		 * boundaries (valid, but too cozy with the implementation)
+		 * boundaries (valid, but chummy with the implementation)
 		 */
-		EVBUFFER_LENGTH(buf) -= boundary_len;
+		EVBUFFER_LENGTH(buf) -= conn->boundary_len;
 		EVBUFFER_DATA(buf)[EVBUFFER_LENGTH(buf)] = '\0';
-		(*conn->cb)(evhttp_find_header(kv, "Content-Type"),
-		    evhttp_find_header(kv, "From"), buf, conn->arg);
+		if (evhttp_find_header(kv, "Content-Type") != NULL) {
+			(*conn->cb)(evhttp_find_header(kv, "Content-Type"),
+			    evhttp_find_header(kv, "From"), buf, conn->arg);
+		}
 		evhttp_clear_headers(kv);
 	}
 }
 
 void
+__subscribe_open(struct evhttp_connection *evcon, void *arg)
+{
+	struct evmsg_conn *conn = arg;
+	struct evhttp_request *req;
+
+	conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
+	evhttp_connection_set_timeout(conn->evcon, 0);
+	evhttp_connection_set_retries(conn->evcon, -1);
+	evhttp_connection_set_closecb(conn->evcon, __subscribe_open, conn);
+
+	req = evhttp_request_new(__subscribe_cb, conn);
+	
+	evhttp_make_request(conn->evcon, req, EVHTTP_REQ_GET,
+	    (char *)EVBUFFER_DATA(conn->uri));
+}
+
+void
 evmsg_open(const char *server, u_short port)
 {
-	struct evmsg_conn *conn = calloc(1, sizeof(*conn));
+	struct evmsg_conn *conn;
+
+	ctx->server = strdup(server);
+	ctx->port = port;
 	
-	evmsg_server = strdup(server);
-	evmsg_port = port;
-	TAILQ_INIT(&evmsg_conns);
-	conn->evcon = evhttp_connection_new(evmsg_server, evmsg_port);
+	/* First connection is for publishing */
+	TAILQ_INIT(&ctx->conns);
+	conn = calloc(1, sizeof(*conn));
+	conn->uri = evbuffer_new();
+	conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
 	evhttp_connection_set_retries(conn->evcon, -1);
-	TAILQ_INSERT_HEAD(&evmsg_conns, conn, next);
+	TAILQ_INSERT_HEAD(&ctx->conns, conn, next);
 }
 
 void
@@ -93,9 +125,9 @@ evmsg_set_auth(const char *username, const char *password)
 		struct evbuffer *tmp = evbuffer_new();
 		int len = evbuffer_add_printf(tmp, "%s:%s",
 		    username, password);
-		evmsg_auth = malloc(len * 2);
+		ctx->auth = malloc(len * 2);
 		b64_ntop(EVBUFFER_DATA(tmp), len,
-		    evmsg_auth, len * 2);
+		    ctx->auth, len * 2);
 		evbuffer_free(tmp);
 	}
 }
@@ -105,7 +137,7 @@ evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
 {
 	static char *buf;
 	static int len;
-	struct evmsg_conn *conn = TAILQ_FIRST(&evmsg_conns);
+	struct evmsg_conn *conn = TAILQ_FIRST(&ctx->conns);
 	struct evhttp_request *req;
 	int n = strlen(channel);
 	
@@ -115,39 +147,35 @@ evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
 		buf = malloc(len);
 	}
 	req = evhttp_request_new(__publish_cb, NULL);
-	if (evmsg_auth != NULL) {
+	if (ctx->auth != NULL) {
 		evhttp_add_header(req->output_headers, "Authorization",
-		    evmsg_auth);
+		    ctx->auth);
 	}
 	evhttp_add_header(req->output_headers, "Content-Type", type);
 	evbuffer_add_buffer(req->output_buffer, msg);
-	snprintf(buf, len, "/msgbus/%s", channel);
+	evbuffer_drain(conn->uri, EVBUFFER_LENGTH(conn->uri));
+	evbuffer_add_printf(conn->uri, "/msgbus/%s", channel);
 	
-	return (evhttp_make_request(conn->evcon, req, EVHTTP_REQ_POST, buf));
+	return (evhttp_make_request(conn->evcon, req, EVHTTP_REQ_POST,
+		    (char *)EVBUFFER_DATA(conn->uri)));
 }
 
-int
+void
 evmsg_subscribe(const char *channel, const char *type, const char *sender,
     void (*callback)(const char *type, const char *sender,
 	struct evbuffer *buf, void *arg), void *arg)
 {
 	struct evmsg_conn *conn;
-	struct evhttp_request *req;
-	char buf[BUFSIZ];
 
 	conn = calloc(1, sizeof(*conn));
-	conn->evcon = evhttp_connection_new(evmsg_server, evmsg_port);
+	conn->uri = evbuffer_new();
+	evbuffer_add_printf(conn->uri, "/msgbus/%s?type=%s&sender=%s",
+	    channel, type ? type : "*", sender ? sender : "*");
 	conn->cb = callback;
 	conn->arg = arg;
-	evhttp_connection_set_retries(conn->evcon, -1);
-	TAILQ_INSERT_TAIL(&evmsg_conns, conn, next);
-
-	req = evhttp_request_new(__subscribe_cb, conn);
+	TAILQ_INSERT_TAIL(&ctx->conns, conn, next);
 	
-	snprintf(buf, sizeof(buf), "/msgbus/%s?type=%s&sender=%s",
-	    channel, type ? type : "*", sender ? sender : "*");
-	
-	return (evhttp_make_request(conn->evcon, req, EVHTTP_REQ_GET, buf));
+	__subscribe_open(NULL, conn);
 }
 
 void
@@ -156,13 +184,13 @@ evmsg_close(void)
 	struct evmsg_conn *conn;
 
 	/* Shutdown all our connections. */
-	while ((conn = TAILQ_FIRST(&evmsg_conns)) != NULL) {
-		TAILQ_REMOVE(&evmsg_conns, conn, next);
+	while ((conn = TAILQ_FIRST(&ctx->conns)) != NULL) {
+		TAILQ_REMOVE(&ctx->conns, conn, next);
 		evhttp_connection_free(conn->evcon);
+		if (conn->uri != NULL)
+			evbuffer_free(conn->uri);
 	}
-	free(evmsg_auth);
-	evmsg_auth = NULL;
-	
-	free(evmsg_server);
-	evmsg_server = NULL;
+	free(ctx->auth);
+	free(ctx->server);
+	memset(ctx, 0, sizeof(*ctx));
 }
