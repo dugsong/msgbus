@@ -33,7 +33,7 @@ main(int argc, char *argv[])
 	putenv("EVENT_SHOW_METHOD=1");
 	event_init();
 
-	evmsg_open("localhost", 8080);
+	evmsg_open(NULL, 0);
 	evmsg_set_auth(getenv("USER"), "foobar");
 	
 	evtimer_set(&time_ev, send_msg, channel);
