@@ -10,8 +10,9 @@
 #include "event.h"
 #include "evmsg.h"
 
-struct event time_ev;
-struct timeval time_tv = { 0, 10000 };
+struct event send_ev, stats_ev;
+struct timeval send_tv = { 0, 10000 }, stats_tv = { 5, 0 };
+int cnt;
 
 void
 send_msg(int fd, short event, void *arg)
@@ -22,7 +23,16 @@ send_msg(int fd, short event, void *arg)
 
 	evbuffer_add_printf(msg, "<h1>hello world %d</h1>", i++);
 	evmsg_publish(channel, "text/html", msg);
-	event_add(&time_ev, &time_tv);
+	cnt++;
+	event_add(&send_ev, &send_tv);
+}
+
+void
+print_stats(int fd, short event, void *arg)
+{
+	printf("%.1f messages/s\n", ((float)cnt) / stats_tv.tv_sec);
+	cnt = 0;
+	event_add(&stats_ev, &stats_tv);
 }
 
 int
@@ -36,8 +46,11 @@ main(int argc, char *argv[])
 	evmsg_open(NULL, 0);
 	evmsg_set_auth(getenv("USER"), "foobar");
 	
-	evtimer_set(&time_ev, send_msg, channel);
-	event_add(&time_ev, &time_tv);
+	evtimer_set(&send_ev, send_msg, channel);
+	event_add(&send_ev, &send_tv);
+
+	evtimer_set(&stats_ev, print_stats, NULL);
+	event_add(&stats_ev, &stats_tv);
 	
 	event_dispatch();
 	
