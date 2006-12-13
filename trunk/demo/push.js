@@ -4,9 +4,9 @@ var isConnected = false;
 function getRequest()
 {
     var sendRequest;
-    if(window.XMLHttpRequest) {
+    if (window.XMLHttpRequest) {
         sendRequest = new XMLHttpRequest();
-        if(sendRequest.overrideMimeType) {
+        if (sendRequest.overrideMimeType) {
             sendRequest.overrideMimeType('text/html');
         }
     }
@@ -28,7 +28,7 @@ function getRequest()
 
 function send(message)
 {
-    if(!isConnected) { 
+    if (!isConnected) { 
         openChannel();
     }
  
@@ -65,7 +65,7 @@ function openChannel()
 	reply.appendChild(br);
 	reply.innerHTML = reply.innerHTML;
     };
-    channel.onerror = function ()
+    channel.onerror = function()
     {
         isConnected = false;
         document.getElementById("cStatus").innerHTML = "Disconnected";
@@ -84,7 +84,7 @@ function shouldI(e)
     if (e.keyCode) code = e.keyCode;
     else if (e.which) code = e.which;
     var character = String.fromCharCode(code);
-    if(code == 13) {
+    if (code == 13) {
         document.getElementById("sStatus").innerHTML = "Sending";
         return true;
     }    
@@ -96,7 +96,7 @@ function shouldI(e)
 
 function gogo(control, e) 
 {
-    if(shouldI(e)) {
+    if (shouldI(e)) {
         send(control.value);
         control.value = control.defaultValue;
         return false;
