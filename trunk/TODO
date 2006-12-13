@@ -1,8 +1,6 @@
 
 - channel-based auth?
 
-- root channel (e.g. "/msgbus") for all messages (mostly for diagnostics)?
-
 - SSL (could do client-side now with a libcurl dependency)
 
 - lighttpd module? can't do Apache due to pre-forking...
