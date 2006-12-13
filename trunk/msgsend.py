@@ -8,7 +8,7 @@ def main():
     op = optparse.OptionParser(usage='%prog [OPTIONS] CHANNEL')
     op.add_option('-d', dest='address', default='127.0.0.1',
                   help='specify alternate destination address')
-    op.add_option('-p', dest='port', default=8080, type='int',
+    op.add_option('-p', dest='port', default=8888, type='int',
                   help='specify alternate destination port')
     op.add_option('-f', dest='filename', help='specify file to data from')
     op.add_option('-a', dest='auth', help='username:password to send')
@@ -31,7 +31,7 @@ def main():
         hdrs['Authorization'] = 'Basic %s' % \
             base64.encodestring(opts.auth).strip()
 
-    conn = httplib.HTTPConnection('localhost:8080')
+    conn = httplib.HTTPConnection('%s:%s' % (opts.address, opts.port))
     conn.request('POST', uri, buf, hdrs)
     res = conn.getresponse()
     if res.status != 204:
