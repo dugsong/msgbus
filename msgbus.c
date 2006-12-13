@@ -48,16 +48,18 @@ struct msgbus_channel {
 	struct msgbus_subs	 subs;
 	SPLAY_ENTRY(msgbus_channel) next;
 };
-SPLAY_HEAD(msgbus_channel_tree, msgbus_channel) msgbus_channels = \
+SPLAY_HEAD(msgbus_channels, msgbus_channel) msgbus_channels = \
 	SPLAY_INITIALIZER(&msgbus_channels);
+
+struct msgbus_channel *msgbus_root;
 
 static int
 _channel_cmp(struct msgbus_channel *a, struct msgbus_channel *b)
 {
 	return (strcmp(a->name, b->name));
 }
-SPLAY_PROTOTYPE(msgbus_channel_tree, msgbus_channel, next, _channel_cmp);
-SPLAY_GENERATE(msgbus_channel_tree, msgbus_channel, next, _channel_cmp);
+SPLAY_PROTOTYPE(msgbus_channels, msgbus_channel, next, _channel_cmp);
+SPLAY_GENERATE(msgbus_channels, msgbus_channel, next, _channel_cmp);
 
 static const char *
 _evhttp_peername(struct evhttp_connection *evcon)
@@ -71,41 +73,58 @@ _evhttp_peername(struct evhttp_connection *evcon)
 	return (buf);
 }
 
+static struct evbuffer *
+_format_msg(const char *channel, const char *sender, const char *type,
+    void *data, int len, int chunked)
+{
+	struct evbuffer *buf = evbuffer_new();
+	
+	if (sender != NULL)
+		evbuffer_add_printf(buf, "From: %s\n", sender);
+	if (channel != NULL)
+		evbuffer_add_printf(buf, "Content-Location: /msgbus/%s\n",
+		    channel);
+	evbuffer_add_printf(buf, "Content-Type: %s\n", type);
+	if (!chunked) {
+		evbuffer_add_printf(buf,
+		    "Content-Length: %d\n", len);
+	}
+	evbuffer_add(buf, "\n", 1);
+	evbuffer_add(buf, data, len);
+	evbuffer_add_printf(buf, "--%s\n", BOUNDARY_MARKER);
+	return (buf);
+}
+
 static void
 msgbus_deliver(const char *channel, const char *sender, const char *type,
     void *buf, int len)
 {
 	struct msgbus_channel *chan, find = { .name = (char *)channel };
 	struct msgbus_sub *sub;
+	struct evbuffer *msg;
 	
-	if ((chan = SPLAY_FIND(msgbus_channel_tree, &msgbus_channels,
-		 &find)) == NULL) {
-		return;
+	/* XXX - evbuffer_add_buffer() dirty swap requires new msg each time */
+	if (msgbus_root != NULL) {
+		TAILQ_FOREACH(sub, &msgbus_root->subs, next) {
+			msg = _format_msg(channel, sender, type, buf, len,
+			    (sub->req->minor == 1));
+			evhttp_send_reply_chunk(sub->req, msg);
+			evbuffer_free(msg);
+		}
 	}
-	TAILQ_FOREACH(sub, &chan->subs, next) {
-		if ((sub->sender == NULL || sender == NULL ||
-		     match_pattern_list(sender, sub->sender,
-			 strlen(sub->sender), 0) == 1) &&
-		    (sub->type == NULL || match_pattern_list(type, sub->type,
-			strlen(sub->type), 0) == 0)) {
-			/*
-			 * XXX - can't do this once for the loop using
-			 * evbuffer_add_buffer() due to the dirty swap!
-			 */
-			struct evbuffer *out = evbuffer_new();
-			if (sender != NULL)
-				evbuffer_add_printf(out, "From: %s\n", sender);
-			evbuffer_add_printf(out, "Content-Type: %s\n", type);
-			if (sub->req->minor != 1) {
-				/* not chunked encoding */
-				evbuffer_add_printf(out,
-				    "Content-Length: %d\n", len);
+	if ((chan = SPLAY_FIND(msgbus_channels, &msgbus_channels, &find))) {
+		TAILQ_FOREACH(sub, &chan->subs, next) {
+			if ((sub->sender == NULL || sender == NULL ||
+				match_pattern_list(sender, sub->sender,
+				    strlen(sub->sender), 0) == 1) &&
+			    (sub->type == NULL ||
+				match_pattern_list(type, sub->type,
+				    strlen(sub->type), 0) == 0)) {
+				msg = _format_msg(NULL, sender, type,
+				    buf, len, (sub->req->minor == 1));
+				evhttp_send_reply_chunk(sub->req, msg);
+				evbuffer_free(msg);
 			}
-			evbuffer_add(out, "\n", 1);
-			evbuffer_add(out, buf, len);
-			evbuffer_add_printf(out, "--%s\n", BOUNDARY_MARKER);
-			evhttp_send_reply_chunk(sub->req, out);
-			evbuffer_free(out);
 		}
 	}
 }
@@ -127,7 +146,9 @@ msgbus_sub_close(struct evhttp_connection *evcon, void *arg)
 	
 	/* Close channel if we're the last subscriber */
 	if (TAILQ_EMPTY(&chan->subs)) {
-		SPLAY_REMOVE(msgbus_channel_tree, &msgbus_channels, chan);
+		SPLAY_REMOVE(msgbus_channels, &msgbus_channels, chan);
+		if (msgbus_root == chan)
+			msgbus_root = NULL;
 		free(chan->name);
 		free(chan);
 	}
@@ -141,12 +162,14 @@ msgbus_sub_open(struct evhttp_request *req,
 	struct msgbus_sub *sub;
 
 	/* Create channel if we're the first subscriber. */
-	if ((chan = SPLAY_FIND(msgbus_channel_tree,
+	if ((chan = SPLAY_FIND(msgbus_channels,
 		 &msgbus_channels, &find)) == NULL) {
 		chan = calloc(1, sizeof(*chan));
 		chan->name = strdup(channel);
 		TAILQ_INIT(&chan->subs);
-		SPLAY_INSERT(msgbus_channel_tree, &msgbus_channels, chan);
+		SPLAY_INSERT(msgbus_channels, &msgbus_channels, chan);
+		if (*channel == '\0')
+			msgbus_root = chan;
 	}
 	sub = calloc(1, sizeof(*sub));
 	sub->req = req;
@@ -295,14 +318,17 @@ msgbus_req_handler(struct evhttp_request *req, void *arg)
 	if (req != NULL && req->evcon != NULL) {
 		if (strncmp(req->uri, "/msgbus/", 8) == 0) {
 			char *channel = strdup(req->uri + 8);
-			strtok(channel, "?");
+			channel = strsep(&channel, "?");
 			msgbus_bus_handler(ctx, req, channel);
 			free(channel);
 		} else if (ctx->docroot != NULL) {
 			msgbus_doc_handler(ctx, req);
+		} else {
+			struct evbuffer *buf = evbuffer_new();
+			evbuffer_add_printf(buf, "<h1>Not Found</h1>");
+			evhttp_send_reply(req, HTTP_NOTFOUND,
+			    "Not Found", buf);
 		}
-	} else {
-		printf("got NULL request - connection_fail?\n");
 	}
 }
 
