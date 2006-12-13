@@ -1,4 +1,23 @@
 lightweight HTTP publish/subscribe message bus based on libevent.
+implements scalable server push via HTTP multipart/x-mixed-replace for
+local or remote messaging.
+
+what's here:
+
+msgbus
+	single-process HTTP message bus scaling to thousands of
+	persistent connections at hundreds of messages per second
+
+libevmsg
+	libevent-based message library for simple evented
+	publish/subscribe
+
+demo
+	simple AJAX+COMET webchat demo (e.g. ./msgbus -d demo)
+
++ some test programs and sample Python clients
+
+quick protocol details:
 
 to publish JPEGs as messages on the 'foo' channel:
 
@@ -43,6 +62,4 @@ or for HTTP/1.1:
 to subscribe to only text and image messages on the 'foo' channel:
 
     GET /msgbus/foo?type=text/*,image/* HTTP/1.1
-
-try the AJAX/COMET demo (./msgbus -d ./demo) at http://localhost:8888/
 
