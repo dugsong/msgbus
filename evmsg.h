@@ -14,12 +14,14 @@ int evmsg_publish(const char *channel, const char *type, struct evbuffer *msg);
 /*
  * Subscribe to a message stream. Sender and type may be comma-separated
  * wildcard patterns. Sender may be NULL, if the publisher didn't authenticate.
- XXX - need a way to unsub. also to restart sub on connection death.
+ * Returns an opaque handle which may be used to cancel the subscription.
  */
-void evmsg_subscribe(const char *channel, const char *type, const char *sender,
+void *evmsg_subscribe(const char *channel, const char *type,const char *sender,
     void (*callback)(const char *type, const char *sender,
 	struct evbuffer *buf, void *arg), void *arg);
 
+void evmsg_unsubscribe(void *handle);
+    
 void evmsg_close(void);
 
 #endif /* EVMSG_H */
