@@ -1,56 +1,239 @@
 Index: http.c
 ===================================================================
---- http.c	(revision 300)
+--- http.c	(revision 303)
 +++ http.c	(working copy)
-@@ -658,6 +658,9 @@
- 		TAILQ_REMOVE(&http->connections, evcon, next);
+@@ -268,7 +268,6 @@
+ 	
+ 	evhttp_remove_header(req->output_headers, "Accept-Encoding");
+ 	evhttp_remove_header(req->output_headers, "Proxy-Connection");
+-	req->minor = 0;
+ 
+ 	/* Generate request line */
+ 	method = evhttp_method(req->type);
+@@ -567,9 +566,6 @@
+ 		}
  	}
  
-+	if (event_initialized(&evcon->close_ev))
-+		event_del(&evcon->close_ev);
-+
- 	if (event_initialized(&evcon->ev))
- 		event_del(&evcon->ev);
- 	
-@@ -729,18 +732,18 @@
- evhttp_connection_start_detectclose(struct evhttp_connection *evcon)
- {
- 	evcon->flags |= EVHTTP_CON_CLOSEDETECT;
+-	/* hand what ever we read over to the request */
+-	evbuffer_add_buffer(req->input_buffer, evcon->input_buffer);
 -	
--	event_del(&evcon->ev);
--	event_set(&evcon->ev, evcon->fd, EV_READ,
-+
-+	event_del(&evcon->close_ev);
-+	event_set(&evcon->close_ev, evcon->fd, EV_READ,
- 	    evhttp_detect_close_cb, evcon);
--	event_add(&evcon->ev, NULL);
-+	event_add(&evcon->close_ev, NULL);
- }
+ 	/* notify the user of the request */
+ 	(*req->cb)(req, req->cb_arg);
  
- static void
- evhttp_connection_stop_detectclose(struct evhttp_connection *evcon)
+@@ -591,31 +587,68 @@
  {
- 	evcon->flags &= ~EVHTTP_CON_CLOSEDETECT;
--	event_del(&evcon->ev);
-+	event_del(&evcon->close_ev);
+ 	struct evhttp_connection *evcon = arg;
+ 	struct evhttp_request *req = TAILQ_FIRST(&evcon->requests);
+-	int n;
++	struct evbuffer *buf = evcon->input_buffer;
++	int n, len;
+ 
+ 	if (what == EV_TIMEOUT) {
+ 		evhttp_connection_fail(evcon, EVCON_HTTP_TIMEOUT);
+ 		return;
+ 	}
+-
+-	n = evbuffer_read(req->input_buffer, fd, req->ntoread);
++	n = evbuffer_read(buf, fd, -1);
++	len = EVBUFFER_LENGTH(buf);
+ 	event_debug(("%s: got %d on %d\n", __func__, n, fd));
+-
++	
+ 	if (n == -1) {
+ 		event_warn("%s: evbuffer_read", __func__);
+ 		evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
+ 		return;
++	} else if (n == 0) {
++		/* Connection closed */
++		evhttp_connection_done(evcon);
++		return;
+ 	}
+-
+-	/* Adjust the amount of data that we have left to read */
+-	if (req->ntoread > 0)
+-		req->ntoread -= n;
+-
+-	if (n == 0 || req->ntoread == 0) {
++	if (req->chunked) {
++		while (n > 0) {
++			if (req->ntoread < 0) {
++				/* Read chunk size */
++				char *p = evbuffer_readline(buf);
++				if (p == NULL)
++					break;
++				n -= ((char *)EVBUFFER_DATA(buf) - p);
++				req->ntoread = strtol(p, NULL, 16);
++				free(p);
++				if (req->ntoread == 0) {
++					/* Last chunk */
++					evhttp_connection_done(evcon);
++					return;
++				}
++			} else if (len >= req->ntoread) {
++				/* Completed chunk */
++				evbuffer_add(req->input_buffer,
++				    EVBUFFER_DATA(buf), req->ntoread);
++				evbuffer_drain(buf, req->ntoread);
++				n -= req->ntoread;
++				req->ntoread = -1;
++				if (req->cb != NULL) {
++					(*req->cb)(req, req->cb_arg);
++					evbuffer_drain(req->input_buffer,
++					    EVBUFFER_LENGTH(req->input_buffer));
++				}
++			}
++		}
++	} else if (req->ntoread < 0) {
++		/* Read until connection close. */
++		evbuffer_add_buffer(req->input_buffer, evcon->input_buffer);
++	} else if (len >= req->ntoread) {
++		/* Completed content length */
++		evbuffer_add(req->input_buffer, EVBUFFER_DATA(buf),
++		    req->ntoread);
++		evbuffer_drain(buf, req->ntoread);
++		req->ntoread = 0;
+ 		evhttp_connection_done(evcon);
+ 		return;
+ 	}
+-
++	/* Read more! */
+ 	evhttp_add_event(&evcon->ev, evcon->timeout, HTTP_READ_TIMEOUT);
  }
  
- static void
-@@ -1264,13 +1267,6 @@
+@@ -643,7 +676,7 @@
+ 
+ 	/* notify interested parties that this connection is going down */
+ 	if (evcon->fd != -1) {
+-		if (evcon->closecb != NULL)
++		if (evcon->state == EVCON_CONNECTED && evcon->closecb != NULL)
+ 			(*evcon->closecb)(evcon, evcon->closecb_arg);
+ 	}
+ 
+@@ -709,7 +742,7 @@
+ 
+ 	if (evcon->fd != -1) {
+ 		/* inform interested parties about connection close */
+-		if (evcon->closecb != NULL)
++		if (evcon->state == EVCON_CONNECTED && evcon->closecb != NULL)
+ 			(*evcon->closecb)(evcon, evcon->closecb_arg);
+ 
+ 		close(evcon->fd);
+@@ -803,7 +836,7 @@
+  cleanup:
+ 	if (evcon->retry_max < 0 || evcon->retry_cnt < evcon->retry_max) {
+ 		evtimer_set(&evcon->ev, evhttp_connection_retry, evcon);
+-		evhttp_add_event(&evcon->ev, 2 << evcon->retry_cnt,
++		evhttp_add_event(&evcon->ev, MIN(3600, 2 << evcon->retry_cnt),
+ 		    HTTP_CONNECT_TIMEOUT);
+ 		evcon->retry_cnt++;
+ 		return;
+@@ -1041,19 +1074,17 @@
+ 		*endp = '\0';
+ 		endp += 2;
+ 
+-		event_debug(("%s: Got: %s\n", __func__, EVBUFFER_DATA(buffer)));
+-
+ 		/* Processing of header lines */
+ 		if (req->got_firstline == 0) {
+ 			switch (req->kind) {
+ 			case EVHTTP_REQUEST:
+-				if (evhttp_parse_request_line(
+-					    req, EVBUFFER_DATA(buffer)) == -1)
++				if (evhttp_parse_request_line(req,
++					(char *)EVBUFFER_DATA(buffer)) == -1)
+ 					return (-1);
+ 				break;
+ 			case EVHTTP_RESPONSE:
+-				if (evhttp_parse_response_line(
+-					    req, EVBUFFER_DATA(buffer)) == -1)
++				if (evhttp_parse_response_line(req,
++					(char *)EVBUFFER_DATA(buffer)) == -1)
+ 					return (-1);
+ 				break;
+ 			default:
+@@ -1085,6 +1116,7 @@
  {
- 	evcon->closecb = cb;
- 	evcon->closecb_arg = cbarg;
--	/* 
--	 * applications that stream to clients forever might want to
--	 * detect when a browser or client has stopped receiving the
--	 * stream.  this would be detected on the next write in any case,
--	 * however, we can release resources earlier using this.
--	 */
--	evhttp_connection_start_detectclose(evcon);
+ 	const char *content_length;
+ 	const char *connection;
++	const char *xfer_enc;
+ 	struct evkeyvalq *headers = req->input_headers;
+ 	
+ 	/* If this is a request without a body, then we are done */
+@@ -1092,37 +1124,44 @@
+ 		evhttp_connection_done(evcon);
+ 		return;
+ 	}
+-
+-	content_length = evhttp_find_header(headers, "Content-Length");
+-	connection = evhttp_find_header(headers, "Connection");
+-
+-	if (content_length == NULL && connection == NULL)
++	xfer_enc = evhttp_find_header(req->input_headers, "Transfer-Encoding");
++	if (xfer_enc != NULL && strcasecmp(xfer_enc, "chunked") == 0) {
++		req->chunked = 1;
+ 		req->ntoread = -1;
+-	else if (content_length == NULL &&
+-	    strcasecmp(connection, "Close") != 0) {
+-		/* Bad combination, we don't know when it will end */
+-		event_warnx("%s: we got no content length, but the server"
+-		    " wants to keep the connection open: %s.\n",
+-		    __func__, connection);
+-		evhttp_connection_fail(evcon, EVCON_HTTP_INVALID_HEADER);
+-		return;
+-	} else if (content_length == NULL)
+-		req->ntoread = -1;
+-	else
+-		req->ntoread = atoi(content_length);
+-
+-	event_debug(("%s: bytes to read: %d (in buffer %d)\n",
+-			__func__, req->ntoread,
+-		EVBUFFER_LENGTH(evcon->input_buffer)));
+-	
+-	if (req->ntoread > 0)
+-		req->ntoread -= EVBUFFER_LENGTH(evcon->input_buffer);
+-
+-	if (req->ntoread == 0) {
+-		evhttp_connection_done(evcon);
+-		return;
++	} else {
++		content_length = evhttp_find_header(headers, "Content-Length");
++		connection = evhttp_find_header(headers, "Connection");
++		
++		if (content_length == NULL && connection == NULL)
++			req->ntoread = -1;
++		else if (content_length == NULL &&
++		    strcasecmp(connection, "Close") != 0) {
++			/* Bad combination, we don't know when it will end */
++			event_warnx("%s: we got no content length, but the "
++			    "server wants to keep the connection open: %s.\n",
++			    __func__, connection);
++			evhttp_connection_fail(evcon,
++			    EVCON_HTTP_INVALID_HEADER);
++			return;
++		} else if (content_length == NULL)
++			req->ntoread = -1;
++		else
++			req->ntoread = atoi(content_length);
++		
++		event_debug(("%s: bytes to read: %d (in buffer %d)\n",
++				__func__, req->ntoread,
++				EVBUFFER_LENGTH(evcon->input_buffer)));
++		
++		if (req->ntoread > 0)
++			req->ntoread -= EVBUFFER_LENGTH(evcon->input_buffer);
++		
++		if (req->ntoread == 0) {
++			evbuffer_add_buffer(req->input_buffer,
++			    evcon->input_buffer);
++			evhttp_connection_done(evcon);
++			return;
++		}
+ 	}
+-
+ 	event_set(&evcon->ev, evcon->fd, EV_READ, evhttp_read, evcon);
+ 	evhttp_add_event(&evcon->ev, evcon->timeout, HTTP_READ_TIMEOUT);
  }
- 
- void
-@@ -1448,6 +1444,8 @@
+@@ -1445,6 +1484,8 @@
  evhttp_send_reply(struct evhttp_request *req, int code, const char *reason,
      struct evbuffer *databuf)
  {
@@ -59,55 +242,157 @@ Index: http.c
  	evhttp_response_code(req, code, reason);
  	
  	evhttp_send(req, databuf);
-@@ -1457,7 +1455,14 @@
- evhttp_send_reply_start(struct evhttp_request *req, int code,
-     const char *reason)
- {
-+	/* set up to watch for client close */
-+	evhttp_connection_start_detectclose(req->evcon);
+@@ -1457,23 +1498,37 @@
+ 	/* set up to watch for client close */
+ 	evhttp_connection_start_detectclose(req->evcon);
  	evhttp_response_code(req, code, reason);
-+	if (req->minor == 1) {
-+		/* use chunked encoding */
++	if (req->major == 1 && req->minor == 1) {
++		/* use chunked encoding for HTTP/1.1 */
 +		evhttp_add_header(req->output_headers, "Transfer-Encoding",
 +		    "chunked");
++		req->chunked = 1;
 +	}
  	evhttp_make_header(req->evcon, req);
  	evhttp_write_buffer(req->evcon, NULL, NULL);
  }
-@@ -1465,6 +1470,11 @@
+ 
  void
- evhttp_send_reply_data(struct evhttp_request *req, struct evbuffer *databuf)
+-evhttp_send_reply_data(struct evhttp_request *req, struct evbuffer *databuf)
++evhttp_send_reply_chunk(struct evhttp_request *req, struct evbuffer *databuf)
  {
-+	if (req->minor == 1) {
-+		/* use chunked encoding */
++	if (req->chunked) {
 +		evbuffer_add_printf(req->evcon->output_buffer, "%x\r\n",
 +		    EVBUFFER_LENGTH(databuf));
 +	}
  	evbuffer_add_buffer(req->evcon->output_buffer, databuf);
  	evhttp_write_buffer(req->evcon, NULL, NULL);
  }
-@@ -1474,7 +1484,11 @@
+ 
+ void
+-evhttp_send_reply_done(struct evhttp_request *req)
++evhttp_send_reply_end(struct evhttp_request *req)
  {
  	struct evhttp_connection *evcon = req->evcon;
  
 -	if (!event_pending(&evcon->ev, EV_WRITE|EV_TIMEOUT, NULL)) {
-+	if (req->minor == 1) {
-+		/* use chunked encoding */
++	if (req->chunked) {
 +		evbuffer_add(req->evcon->output_buffer, "0\r\n\r\n", 5);
 +		evhttp_write_buffer(req->evcon, evhttp_send_done, NULL);
++		req->chunked = 0;
 +	} else if (!event_pending(&evcon->ev, EV_WRITE|EV_TIMEOUT, NULL)) {
  		/* let the connection know that we are done with the request */
  		evhttp_send_done(evcon, NULL);
  	} else {
-Index: http-internal.h
-===================================================================
---- http-internal.h	(revision 300)
-+++ http-internal.h	(working copy)
-@@ -41,6 +41,7 @@
+@@ -1511,25 +1566,71 @@
+ 	evhttp_send(req, databuf);
+ }
  
- 	int fd;
- 	struct event ev;
-+	struct event close_ev;
- 	struct evbuffer *input_buffer;
- 	struct evbuffer *output_buffer;
++static const char uri_chars[256] = {
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 1, 0, 0, 1, 0, 1, 1,   1, 1, 1, 1, 1, 1, 1, 1,
++	1, 1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 0, 0, 1, 0, 0,
++	/* 64 */
++	1, 1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 1, 1, 1, 1, 1,
++	1, 1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 0, 0, 0, 0, 1,
++	0, 1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 1, 1, 1, 1, 1,
++	1, 1, 1, 1, 1, 1, 1, 1,   1, 1, 1, 0, 0, 0, 1, 0,
++	/* 128 */
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	/* 192 */
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++	0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0,
++};
++
++/*
++ * Helper functions to encode/decode a URI.
++ * The returned string must be freed by the caller.
++ */
+ char *
+-evhttp_decode_uri(const char *path)
++evhttp_encode_uri(const char *uri)
+ {
++	struct evbuffer *buf = evbuffer_new();
++	char *p;
++
++	for (p = (char *)uri; *p != '\0'; p++) {
++		if (uri_chars[(u_char)(*p)]) {
++			evbuffer_add(buf, p, 1);
++		} else {
++			evbuffer_add_printf(buf, "%%%02X", (u_char)(*p));
++		}
++	}
++	evbuffer_add(buf, "", 1);
++	p = strdup((char *)EVBUFFER_DATA(buf));
++	evbuffer_free(buf);
++	
++	return (p);
++}
++
++char *
++evhttp_decode_uri(const char *uri)
++{
+ 	char c, *ret;
+ 	int i, j, in_query = 0;
  	
+-	ret = malloc(strlen(path) + 1);
++	ret = malloc(strlen(uri) + 1);
+ 	if (ret == NULL)
+-		event_err(1, "%s: malloc(%d)", __func__, strlen(path) + 1);
++		event_err(1, "%s: malloc(%d)", __func__, strlen(uri) + 1);
+ 
+-	for (i = j = 0; path[i] != '\0'; i++) {
+-		c = path[i];
++	for (i = j = 0; uri[i] != '\0'; i++) {
++		c = uri[i];
+ 		if (c == '?') {
+ 			in_query = 1;
+ 		} else if (c == '+' && in_query) {
+ 			c = ' ';
+-		} else if (c == '%' && isxdigit(path[i+1]) &&
+-		    isxdigit(path[i+2])) {
+-			char tmp[] = { path[i+1], path[i+2], '\0' };
++		} else if (c == '%' && isxdigit(uri[i+1]) &&
++		    isxdigit(uri[i+2])) {
++			char tmp[] = { uri[i+1], uri[i+2], '\0' };
+ 			c = (char)strtol(tmp, NULL, 16);
+ 			i += 2;
+ 		}
+Index: evhttp.h
+===================================================================
+--- evhttp.h	(revision 303)
++++ evhttp.h	(working copy)
+@@ -89,8 +89,8 @@
+ 
+ /* Low-level response interface, for streaming/chunked replies */
+ void evhttp_send_reply_start(struct evhttp_request *, int, const char *);
+-void evhttp_send_reply_data(struct evhttp_request *, struct evbuffer *);
+-void evhttp_send_reply_done(struct evhttp_request *);
++void evhttp_send_reply_chunk(struct evhttp_request *, struct evbuffer *);
++void evhttp_send_reply_end(struct evhttp_request *);
+ 	
+ /* Interfaces for making requests */
+ enum evhttp_cmd_type { EVHTTP_REQ_GET, EVHTTP_REQ_POST, EVHTTP_REQ_HEAD };
+@@ -131,6 +131,7 @@
+ 
+ 	struct evbuffer *input_buffer;	/* read data */
+ 	int ntoread;
++	int chunked;
+ 
+ 	struct evbuffer *output_buffer;	/* outgoing post or data */
+ 
+@@ -192,7 +193,8 @@
+ void evhttp_clear_headers(struct evkeyvalq *);
+ 
+ /* Miscellaneous utility functions */
+-char *evhttp_decode_uri(const char *path);
++char *evhttp_encode_uri(const char *uri);
++char *evhttp_decode_uri(const char *uri);
+ void evhttp_parse_query(const char *uri, struct evkeyvalq *);
+ char *evhttp_htmlescape(const char *html);
+ #ifdef __cplusplus
