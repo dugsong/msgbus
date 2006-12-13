@@ -3,6 +3,7 @@
 #include <sys/types.h>
 #include <sys/param.h>
 #include <sys/queue.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -322,6 +323,7 @@ main(int argc, char **argv)
 {
 	struct msgbus_ctx ctx[1];
 	struct evhttp *httpd;
+	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
 	struct stat st;
 	char path[MAXPATHLEN];
 	int c;
@@ -351,6 +353,9 @@ main(int argc, char **argv)
 
 	if (argc > 0)
 		usage();
+
+	/* Everybody to the limit! */
+	setrlimit(RLIMIT_NOFILE, &fhqwhgads);
 	
 	if (ctx->docroot != NULL) {
 		if (stat(ctx->docroot, &st) < 0 || !S_ISDIR(st.st_mode)) {
