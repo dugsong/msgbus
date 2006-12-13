@@ -10,7 +10,7 @@ def main():
                   action='store_true')
     op.add_option('-d', dest='address', default='127.0.0.1',
                   help='specify alternate destination address')
-    op.add_option('-p', dest='port', default=8080, type='int',
+    op.add_option('-p', dest='port', default=8888, type='int',
                   help='specify alternate destination port')
     op.add_option('-s', dest='sender',
                   help='subscribe to messages from this sender')
