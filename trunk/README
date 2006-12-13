@@ -2,18 +2,18 @@ lightweight HTTP publish/subscribe message bus based on libevent.
 
 to publish JPEGs as messages on the 'foo' channel:
 
-    POST /msgbus/foo HTTP/1.1
+    POST /msgbus/foo HTTP/1.0
     Content-Type: image/jpeg
     Content-Length: 342
     ...
 
 to subscribe to all messages the 'foo' channel:
 
-    GET /msgbus/foo HTTP/1.1
+    GET /msgbus/foo HTTP/1.0
 
 matching messages are returned in server-push mode, e.g.
 
-    HTTP/1.1 200 OK
+    HTTP/1.0 200 OK
     Content-Type: multipart/x-mixed-replace;boundary=XXX
 
     --XXX
@@ -25,7 +25,24 @@ matching messages are returned in server-push mode, e.g.
     Content-Length: 53
     ...
 
-to subscribe to only text messages on the 'foo' channel:
+or for HTTP/1.1:
 
-    GET /msgbus/foo?type=text/* HTTP/1.1
+    HTTP/1.1 200 OK
+    Content-Type: multipart/x-mixed-replace;boundary=XXX
+    Transfer-Encoding: chunked
+
+    da
+    --XXX
+    Content-Type: image/jpeg
+    ...
+    2b
+    -XXX
+    Content-Type: application/x-whatever
+    ...
+
+to subscribe to only text and image messages on the 'foo' channel:
+
+    GET /msgbus/foo?type=text/*,image/* HTTP/1.1
+
+try the AJAX/COMET demo (./msgbus -d ./demo) at http://localhost:8888/
 
