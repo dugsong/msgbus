@@ -9,6 +9,7 @@
 #include <arpa/nameser.h>
 #include <resolv.h>
 
+#include <assert.h>
 #include <event.h>
 #include <evhttp.h>
 #include <stdlib.h>
@@ -102,6 +103,15 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 }
 
 void
+__uri_escape(struct evbuffer *buf)
+{
+	char *p = evhttp_encode_uri((char *)EVBUFFER_DATA(buf));
+	evbuffer_drain(buf, EVBUFFER_LENGTH(buf));
+	evbuffer_add_printf(buf, "%s", p);
+	free(p);
+}
+
+void
 evmsg_open(const char *server, u_short port)
 {
 	struct evmsg_conn *conn;
@@ -121,15 +131,16 @@ evmsg_open(const char *server, u_short port)
 void
 evmsg_set_auth(const char *username, const char *password)
 {
-	if (username != NULL && password != NULL) {
-		struct evbuffer *tmp = evbuffer_new();
-		int len = evbuffer_add_printf(tmp, "%s:%s",
-		    username, password);
-		ctx->auth = malloc(len * 2);
-		b64_ntop(EVBUFFER_DATA(tmp), len,
-		    ctx->auth, len * 2);
-		evbuffer_free(tmp);
-	}
+	struct evbuffer *tmp;
+	int len;
+
+	assert(username != NULL && password != NULL);
+	tmp = evbuffer_new();
+	len = evbuffer_add_printf(tmp, "%s:%s", username, password);
+	ctx->auth = malloc(len * 2);
+	b64_ntop(EVBUFFER_DATA(tmp), len,
+	    ctx->auth, len * 2);
+	evbuffer_free(tmp);
 }
 
 int
@@ -155,27 +166,44 @@ evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
 	evbuffer_add_buffer(req->output_buffer, msg);
 	evbuffer_drain(conn->uri, EVBUFFER_LENGTH(conn->uri));
 	evbuffer_add_printf(conn->uri, "/msgbus/%s", channel);
+	__uri_escape(conn->uri);
 	
 	return (evhttp_make_request(conn->evcon, req, EVHTTP_REQ_POST,
 		    (char *)EVBUFFER_DATA(conn->uri)));
 }
 
-void
+void *
 evmsg_subscribe(const char *channel, const char *type, const char *sender,
     void (*callback)(const char *type, const char *sender,
 	struct evbuffer *buf, void *arg), void *arg)
 {
 	struct evmsg_conn *conn;
-
+	
 	conn = calloc(1, sizeof(*conn));
 	conn->uri = evbuffer_new();
 	evbuffer_add_printf(conn->uri, "/msgbus/%s?type=%s&sender=%s",
 	    channel, type ? type : "*", sender ? sender : "*");
+	__uri_escape(conn->uri);
 	conn->cb = callback;
 	conn->arg = arg;
 	TAILQ_INSERT_TAIL(&ctx->conns, conn, next);
 	
 	__subscribe_open(NULL, conn);
+
+	return ((void *)conn);
+}
+
+void
+evmsg_unsubscribe(void *arg)
+{
+	struct evmsg_conn *conn = arg;
+
+	TAILQ_REMOVE(&ctx->conns, conn, next);
+	evhttp_connection_set_closecb(conn->evcon, NULL, NULL);
+	evhttp_connection_free(conn->evcon);
+	if (conn->uri != NULL)
+		evbuffer_free(conn->uri);
+	free(conn);
 }
 
 void
