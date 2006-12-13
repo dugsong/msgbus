@@ -116,6 +116,10 @@ evmsg_open(const char *server, u_short port)
 {
 	struct evmsg_conn *conn;
 
+	if (server == NULL)
+		server = "127.0.0.1";
+	if (port == 0)
+		port = EVMSG_DEFAULT_PORT;
 	ctx->server = strdup(server);
 	ctx->port = port;
 	

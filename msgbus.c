@@ -17,7 +17,6 @@
 
 #include "event.h"
 #include "evhttp.h"
-//#include "http-internal.h"
 
 #include "auth.h"
 #include "match.h"
@@ -312,7 +311,7 @@ usage(void)
 	fprintf(stderr, "usage: msgbus [OPTIONS]\n\n"
 	    "Options:\n"
 	    "  -d DIRECTORY  document root        (default: none)\n"
-	    "  -p PORT       port to listen on    (default: 8080)\n"
+	    "  -p PORT       port to listen on    (default: 8888)\n"
 	    "  -s ADDRESS    address to listen on (default: any)\n"
 	    );
 	exit(1);
@@ -329,7 +328,7 @@ main(int argc, char **argv)
 
 	memset(ctx, 0, sizeof(*ctx));
 	ctx->address = "0.0.0.0";
-	ctx->port = 8080;
+	ctx->port = 8888;
 	
 	while ((c = getopt(argc, argv, "d:p:s:h?")) != -1) {
 		switch (c) {
