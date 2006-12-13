@@ -22,9 +22,11 @@ int evmsg_publish(const char *channel, const char *type, struct evbuffer *msg);
  * wildcard patterns. Sender may be NULL, if the publisher didn't authenticate.
  * Returns an opaque handle which may be used to cancel the subscription.
  */
+typedef void (*evmsg_subscribe_cb)(const char *channel, const char *type,
+    const char *sender, struct evbuffer *buf, void *arg);
+
 void *evmsg_subscribe(const char *channel, const char *type,const char *sender,
-    void (*callback)(const char *type, const char *sender,
-	struct evbuffer *buf, void *arg), void *arg);
+    evmsg_subscribe_cb callback, void *arg);
 
 /* Cancel a subscription given its handle. */
 void evmsg_unsubscribe(void *handle);
