@@ -22,7 +22,7 @@ static void
 usage(void)
 {
 	fprintf(stderr, "usage: test-sub [-c channel] [-n num_subscriptions] "
-	    "[host [port]]\n");
+	    "[-s] [host [port]]\n");
 	exit(1);
 }
 
@@ -31,15 +31,18 @@ main(int argc, char *argv[])
 {
 	struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
 	char *server = NULL, *channel = "flood";
-	int i, num = 1, port = 0;
+	int i, num = 1, port = 0, use_ssl = 0;
 
-	while ((i = getopt(argc, argv, "c:n:h?")) != -1) {
+	while ((i = getopt(argc, argv, "c:n:sh?")) != -1) {
 		switch (i) {
 		case 'c':
 			channel = optarg;
 			break;
 		case 'n':
 			num = atoi(optarg);
+			break;
+		case 's':
+			use_ssl = 1;
 			break;
 		default:
 			usage();
@@ -59,7 +62,7 @@ main(int argc, char *argv[])
 	putenv("EVENT_SHOW_METHOD=1");
 	event_init();
 
-	evmsg_open(server, port);
+	evmsg_open(server, port, use_ssl);
 
 	for (i = 0; i < num; i++)
 		evmsg_subscribe(channel, NULL, NULL, recv_msg, NULL);

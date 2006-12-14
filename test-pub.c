@@ -38,7 +38,7 @@ print_stats(int fd, short event, void *arg)
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: test-pub [-c channel] [-r msgs_per_sec] "
+	fprintf(stderr, "usage: test-pub [-c channel] [-r msgs_per_sec] [-s] "
 	    "[host [port]]\n");
 	exit(1);
 }
@@ -47,9 +47,9 @@ int
 main(int argc, char *argv[])
 {
 	char *server = NULL, *channel = "flood";
-	int c, port = 0;
+	int c, port = 0, use_ssl = 0;
 
-	while ((c = getopt(argc, argv, "c:r:h?")) != -1) {
+	while ((c = getopt(argc, argv, "c:r:sh?")) != -1) {
 		switch (c) {
 		case 'c':
 			channel = optarg;
@@ -57,6 +57,9 @@ main(int argc, char *argv[])
 		case 'r':
 			send_tv.tv_sec = 0;
 			send_tv.tv_usec = 1000000 / atoi(optarg);
+			break;
+		case 's':
+			use_ssl = 1;
 			break;
 		default:
 			usage();
@@ -67,14 +70,14 @@ main(int argc, char *argv[])
 	argv += optind;
 
 	if (argc > 0) {
-		server = argv[1];
+		server = argv[0];
 		if (argc > 1)
-			port = atoi(optarg);
+			port = atoi(argv[1]);
 	}
 	putenv("EVENT_SHOW_METHOD=1");
 	event_init();
 
-	evmsg_open(server, port);
+	evmsg_open(server, port, use_ssl);
 	evmsg_set_auth(getenv("USER"), "foobar");
 	
 	evtimer_set(&send_ev, send_msg, channel);

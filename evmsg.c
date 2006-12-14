@@ -32,6 +32,7 @@ struct evmsg_ctx {
 	TAILQ_HEAD(, evmsg_conn)  conns;
 	char			 *server;
 	u_short			  port;
+	int			  use_ssl;
 	char 			 *auth;
 } ctx[1];
 
@@ -97,7 +98,10 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 	struct evmsg_conn *conn = arg;
 	struct evhttp_request *req;
 
-	conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
+	if (ctx->use_ssl)
+		conn->evcon = evhttp_connection_new_ssl(ctx->server, ctx->port);
+	else
+		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
 	evhttp_connection_set_timeout(conn->evcon, 0);
 	evhttp_connection_set_retries(conn->evcon, -1);
 	evhttp_connection_set_closecb(conn->evcon, __subscribe_open, conn);
@@ -118,7 +122,7 @@ __uri_escape(struct evbuffer *buf)
 }
 
 void
-evmsg_open(const char *server, u_short port)
+evmsg_open(const char *server, u_short port, int use_ssl)
 {
 	struct evmsg_conn *conn;
 
@@ -128,12 +132,16 @@ evmsg_open(const char *server, u_short port)
 		port = EVMSG_DEFAULT_PORT;
 	ctx->server = strdup(server);
 	ctx->port = port;
+	ctx->use_ssl = use_ssl;
 	
 	/* First connection is for publishing */
 	TAILQ_INIT(&ctx->conns);
 	conn = calloc(1, sizeof(*conn));
 	conn->uri = evbuffer_new();
-	conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
+	if (ctx->use_ssl)
+		conn->evcon = evhttp_connection_new_ssl(ctx->server, ctx->port);
+	else
+		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
 	evhttp_connection_set_retries(conn->evcon, -1);
 	TAILQ_INSERT_HEAD(&ctx->conns, conn, next);
 }

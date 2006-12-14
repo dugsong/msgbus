@@ -9,7 +9,7 @@
  * Open a connection to a remote msgbus. Server and port may be NULL and 0
  * to connect to the default local msgbus.
  */
-void evmsg_open(const char *server, u_short port);
+void evmsg_open(const char *server, u_short port, int use_ssl);
 
 /* Add credentials to publish with. */
 void evmsg_set_auth(const char *username, const char *password);
