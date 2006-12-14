@@ -1,21 +1,28 @@
-lightweight HTTP publish/subscribe message bus based on libevent.
+lightweight, evented HTTP/HTTPS publish/subscribe message bus.
 implements scalable server push via HTTP multipart/x-mixed-replace for
-local or remote messaging.
+local or remote messaging, and a minimal (optional) webserver.
 
 what's here:
 
 msgbus
-	single-process HTTP message bus scaling to thousands of
-	persistent connections at hundreds of messages per second
+	single-process HTTP/HTTPS message bus / webserver scaling to
+	thousands of persistent connections at hundreds of messages
+	per second. supports both HTTP/1.0 and HTTP/1.1.
 
 libevmsg
-	libevent-based message library for simple evented
-	publish/subscribe
+	evented client publish/subscribe API. requires libevent.
+
+msgsend, msgdump
+	trivial Python demo clients
 
 demo
-	simple AJAX+COMET webchat demo (e.g. ./msgbus -d demo)
+	simple interactive AJAX/COMET webchat - e.g. ./msgbus -d demo
+	and point your browser to http://localhost:8888/
 
-+ some test programs and sample Python clients
+test-pub, test-sub
+	test publisher can flood messages to thousands of parallel
+	connections by the test subscriber, or point your browser to
+	http://localhost:8888/msgbus/flood to watch the messages...
 
 quick protocol details:
 
@@ -63,3 +70,24 @@ to subscribe to only text and image messages on the 'foo' channel:
 
     GET /msgbus/foo?type=text/*,image/* HTTP/1.1
 
+to subscribe to all messages:
+
+    GET /msgbus/ HTTP/1.0
+
+    HTTP/1.0 200 OK
+    Content-Type: multipart/x-mixed-replace;boundary=XXX
+    Transfer-Encoding: chunked
+
+    --XXX
+    From: dugsong
+    Content-Location: /msgbus/foo
+    Content-Type: text/plain
+    Content-Length: 6
+    
+    hello
+    --XXX
+    Content-Location: /msgbus/bar
+    Content-Type: application/octet-stream
+    Content-Length: 1035
+    
+    ...
