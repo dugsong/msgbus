@@ -29,7 +29,8 @@ struct msgbus_ctx {
 	char		*address;
 	int		 port;
 	char		*docroot;
-};
+	int		 verbose;
+} ctx[1];
 
 struct msgbus_channel;
 
@@ -134,11 +135,12 @@ msgbus_sub_close(struct evhttp_connection *evcon, void *arg)
 {
 	struct msgbus_sub *sub = (struct msgbus_sub *)arg;
 	struct msgbus_channel *chan = sub->channel;
-	
-	printf("UNSUB %s %s %s %s\n", _evhttp_peername(evcon),
-	    chan->name, sub->sender ? sub->sender : "*",
-	    sub->type ? sub->type : "*");
-	
+
+	if (ctx->verbose > 0) {
+		fprintf(stderr, "UNSUB %s %s %s %s\n", _evhttp_peername(evcon),
+		    chan->name, sub->sender ? sub->sender : "*",
+		    sub->type ? sub->type : "*");
+	}
 	TAILQ_REMOVE(&chan->subs, sub, next);
 	free(sub->sender);
 	free(sub->type);
@@ -184,9 +186,12 @@ msgbus_sub_open(struct evhttp_request *req,
 	
 	TAILQ_INSERT_TAIL(&chan->subs, sub, next);
 
-	printf("SUB %s %s %s %s\n", _evhttp_peername(req->evcon),
-	    sub->channel->name, sub->sender ? sub->sender : "*",
-	    sub->type ? sub->type : "*");
+	if (ctx->verbose > 0) {
+		fprintf(stderr, "SUB %s %s %s %s\n",
+		    _evhttp_peername(req->evcon),
+		    sub->channel->name, sub->sender ? sub->sender : "*",
+		    sub->type ? sub->type : "*");
+	}
 }
 
 const char *
@@ -258,10 +263,12 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 					"Authorization"));
 		type = evhttp_find_header(req->input_headers, "Content-Type");
 
-		printf("PUB %s %s %s %s (%ld)\n", _evhttp_peername(req->evcon),
-		    channel, sender ? sender : "*", type ? type : "*",
-		    (long)EVBUFFER_LENGTH(req->input_buffer));
-		
+		if (ctx->verbose > 2) {
+			fprintf(stderr, "PUB %s %s %s %s (%ld)\n",
+			    _evhttp_peername(req->evcon),
+			    channel, sender ? sender : "*", type ? type : "*",
+			    (long)EVBUFFER_LENGTH(req->input_buffer));
+		}
 		msgbus_deliver(channel, sender, type,
 		    EVBUFFER_DATA(req->input_buffer),
 		    EVBUFFER_LENGTH(req->input_buffer));
@@ -296,8 +303,11 @@ msgbus_doc_handler(struct msgbus_ctx *ctx, struct evhttp_request *req)
 			evhttp_add_header(req->output_headers,
 			    "Content-Length", size);
 			evhttp_send_reply(req, HTTP_OK, "OK", buf);
-			printf("DOC %s %s (%ld)\n",
-			    _evhttp_peername(req->evcon), req->uri, len);
+			if (ctx->verbose > 1) {
+				fprintf(stderr, "DOC %s %s (%ld)\n",
+				    _evhttp_peername(req->evcon),
+				    req->uri, len);
+			}
 		} else {
 			evbuffer_add_printf(buf, "<h1>Not Found</h1>");
 			evhttp_send_reply(req, HTTP_NOTFOUND,
@@ -337,6 +347,7 @@ usage(void)
 {
 	fprintf(stderr, "usage: msgbus [OPTIONS]\n\n"
 	    "Options:\n"
+	    "  -v            verbose mode         (default: none)\n"
 	    "  -d DIRECTORY  document root        (default: none)\n"
 	    "  -p PORT       port to listen on    (default: 8888)\n"
 	    "  -s ADDRESS    address to listen on (default: any)\n"
@@ -347,18 +358,16 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	struct msgbus_ctx ctx[1];
 	struct evhttp *httpd;
 	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
 	struct stat st;
 	char path[MAXPATHLEN];
 	int c;
 
-	memset(ctx, 0, sizeof(*ctx));
 	ctx->address = "0.0.0.0";
 	ctx->port = 8888;
 	
-	while ((c = getopt(argc, argv, "d:p:s:h?")) != -1) {
+	while ((c = getopt(argc, argv, "d:p:s:vh?")) != -1) {
 		switch (c) {
 		case 'd':
 			ctx->docroot = realpath(optarg, path);
@@ -368,6 +377,9 @@ main(int argc, char **argv)
 			break;
 		case 's':
 			ctx->address = optarg;
+			break;
+		case 'v':
+			ctx->verbose++;
 			break;
 		default:
 			usage();
