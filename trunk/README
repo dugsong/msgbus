@@ -15,14 +15,14 @@ libevmsg
 msgsend, msgdump
 	trivial Python demo clients
 
-demo
-	simple interactive AJAX/COMET webchat - e.g. ./msgbus -d demo
-	and point your browser to http://localhost:8888/
+chatdemo
+	simple interactive AJAX + COMET webchat demo - e.g. 
+	./msgbus -d chatdemo and browse to http://localhost:8888/
 
 test-pub, test-sub
 	test publisher can flood messages to thousands of parallel
-	connections by the test subscriber, or point your browser to
-	http://localhost:8888/msgbus/flood to watch the messages...
+	connections by the test subscriber, or watch the messages at
+	http://localhost:8888/msgbus/flood
 
 quick protocol details:
 
