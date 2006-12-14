@@ -28,6 +28,8 @@
 struct msgbus_ctx {
 	char		*address;
 	int		 port;
+	int		 ssl_port;
+	char		*certfile;
 	char		*docroot;
 	int		 verbose;
 } ctx[1];
@@ -347,10 +349,12 @@ usage(void)
 {
 	fprintf(stderr, "usage: msgbus [OPTIONS]\n\n"
 	    "Options:\n"
-	    "  -v            verbose mode         (default: none)\n"
-	    "  -d DIRECTORY  document root        (default: none)\n"
-	    "  -p PORT       port to listen on    (default: 8888)\n"
-	    "  -s ADDRESS    address to listen on (default: any)\n"
+	    "  -v            verbose mode          (default: none)\n"
+	    "  -c CERTFILE   SSL certificate file  (default: none)\n"
+	    "  -d DIRECTORY  document root         (default: none)\n"
+	    "  -p PORT       port to listen on     (default: 8888)\n"
+	    "  -q SSL_PORT   SSL port to listen on (default: none)\n"
+	    "  -s ADDRESS    address to listen on  (default: any)\n"
 	    );
 	exit(1);
 }
@@ -358,7 +362,7 @@ usage(void)
 int
 main(int argc, char **argv)
 {
-	struct evhttp *httpd;
+	struct evhttp *httpd, *httpsd;
 	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
 	struct stat st;
 	char path[MAXPATHLEN];
@@ -367,13 +371,19 @@ main(int argc, char **argv)
 	ctx->address = "0.0.0.0";
 	ctx->port = 8888;
 	
-	while ((c = getopt(argc, argv, "d:p:s:vh?")) != -1) {
+	while ((c = getopt(argc, argv, "c:d:p:q:s:vh?")) != -1) {
 		switch (c) {
+		case 'c':
+			ctx->certfile = optarg;
+			break;
 		case 'd':
 			ctx->docroot = realpath(optarg, path);
 			break;
 		case 'p':
 			ctx->port = atoi(optarg);
+			break;
+		case 'q':
+			ctx->ssl_port = atoi(optarg);
 			break;
 		case 's':
 			ctx->address = optarg;
@@ -401,15 +411,23 @@ main(int argc, char **argv)
 			    ctx->docroot);
 			exit(1);
 		}
-		fprintf(stderr, "listening on %s:%d, serving %s\n",
-		    ctx->address, ctx->port, ctx->docroot);
-	} else
-		fprintf(stderr, "listening on %s:%d\n",
-		    ctx->address, ctx->port);
-	
+		fprintf(stderr, "serving document root %s\n", ctx->docroot);
+	}
 	event_init();
 	httpd = evhttp_start(ctx->address, ctx->port);
 	evhttp_set_gencb(httpd, msgbus_req_handler, ctx);
+	fprintf(stderr, "HTTP server on %s:%d\n", ctx->address, ctx->port);
+	if (ctx->ssl_port) {
+		if (ctx->certfile == NULL) {
+			fprintf(stderr, "no certificate file specified\n");
+			exit(1);
+		}
+		httpsd = evhttp_start_ssl(ctx->address, ctx->ssl_port,
+		    ctx->certfile);
+		evhttp_set_gencb(httpsd, msgbus_req_handler, ctx);
+		fprintf(stderr, "HTTPS server on %s:%d\n", ctx->address,
+		    ctx->ssl_port);
+	}
 	event_dispatch();
 	
 	/* NOTREACHED */
