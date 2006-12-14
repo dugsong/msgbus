@@ -349,12 +349,12 @@ usage(void)
 {
 	fprintf(stderr, "usage: msgbus [OPTIONS]\n\n"
 	    "Options:\n"
-	    "  -v            verbose mode          (default: none)\n"
-	    "  -c CERTFILE   SSL certificate file  (default: none)\n"
-	    "  -d DIRECTORY  document root         (default: none)\n"
+	    "  -c CERTFILE   SSL PEM cert/key file (default: disabled)\n"
+	    "  -d DIRECTORY  document root         (default: disabled)\n"
+	    "  -l ADDRESS    address to listen on  (default: any)\n"
 	    "  -p PORT       port to listen on     (default: 8888)\n"
-	    "  -q SSL_PORT   SSL port to listen on (default: none)\n"
-	    "  -s ADDRESS    address to listen on  (default: any)\n"
+	    "  -P SSL_PORT   SSL port to listen on (default: 4444)\n"
+	    "  -v[v[v]]      verbose mode          (default: none)\n"
 	    );
 	exit(1);
 }
@@ -370,8 +370,9 @@ main(int argc, char **argv)
 
 	ctx->address = "0.0.0.0";
 	ctx->port = 8888;
+	ctx->ssl_port = 4444;
 	
-	while ((c = getopt(argc, argv, "c:d:p:q:s:vh?")) != -1) {
+	while ((c = getopt(argc, argv, "c:d:l:p:P:vh?")) != -1) {
 		switch (c) {
 		case 'c':
 			ctx->certfile = optarg;
@@ -379,14 +380,14 @@ main(int argc, char **argv)
 		case 'd':
 			ctx->docroot = realpath(optarg, path);
 			break;
+		case 'l':
+			ctx->address = optarg;
+			break;
 		case 'p':
 			ctx->port = atoi(optarg);
 			break;
-		case 'q':
+		case 'P':
 			ctx->ssl_port = atoi(optarg);
-			break;
-		case 's':
-			ctx->address = optarg;
 			break;
 		case 'v':
 			ctx->verbose++;
@@ -411,22 +412,28 @@ main(int argc, char **argv)
 			    ctx->docroot);
 			exit(1);
 		}
-		fprintf(stderr, "serving document root %s\n", ctx->docroot);
+		fprintf(stderr, "document root = %s\n", ctx->docroot);
 	}
 	event_init();
-	httpd = evhttp_start(ctx->address, ctx->port);
-	evhttp_set_gencb(httpd, msgbus_req_handler, ctx);
-	fprintf(stderr, "HTTP server on %s:%d\n", ctx->address, ctx->port);
-	if (ctx->ssl_port) {
-		if (ctx->certfile == NULL) {
-			fprintf(stderr, "no certificate file specified\n");
-			exit(1);
-		}
-		httpsd = evhttp_start_ssl(ctx->address, ctx->ssl_port,
-		    ctx->certfile);
-		evhttp_set_gencb(httpsd, msgbus_req_handler, ctx);
-		fprintf(stderr, "HTTPS server on %s:%d\n", ctx->address,
-		    ctx->ssl_port);
+
+	/* Start HTTP server. */
+	if ((httpd = evhttp_start(ctx->address, ctx->port)) != NULL) {
+		evhttp_set_gencb(httpd, msgbus_req_handler, ctx);
+		fprintf(stderr, "HTTP server on %s:%d\n",
+		    ctx->address, ctx->port);
+	} else
+		err(1, "evhttp_start");
+
+	/* Start HTTPS server. */
+	if (ctx->certfile != NULL) {
+		if ((httpsd = evhttp_start_ssl(ctx->address, ctx->ssl_port,
+			 ctx->certfile)) != NULL) {
+			evhttp_set_gencb(httpsd, msgbus_req_handler, ctx);
+			fprintf(stderr, "server certificate = %s\n"
+			    "HTTPS server on %s:%d\n", ctx->certfile,
+			    ctx->address, ctx->ssl_port);
+		} else
+			err(1, "evhttp_start_ssl");
 	}
 	event_dispatch();
 	

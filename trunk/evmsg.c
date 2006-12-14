@@ -129,7 +129,7 @@ evmsg_open(const char *server, u_short port, int use_ssl)
 	if (server == NULL)
 		server = "127.0.0.1";
 	if (port == 0)
-		port = EVMSG_DEFAULT_PORT;
+		port = use_ssl ? EVMSG_DEFAULT_SSL_PORT : EVMSG_DEFAULT_PORT;
 	ctx->server = strdup(server);
 	ctx->port = port;
 	ctx->use_ssl = use_ssl;
