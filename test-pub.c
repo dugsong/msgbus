@@ -38,8 +38,8 @@ print_stats(int fd, short event, void *arg)
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: test-pub [-c channel] [-r msgs_per_sec] [-s] "
-	    "[host [port]]\n");
+	fprintf(stderr, "usage: test-pub [-c channel] [-l address] [-p port] "
+	    "[-r msgs_per_sec] [-s]\n");
 	exit(1);
 }
 
@@ -49,10 +49,16 @@ main(int argc, char *argv[])
 	char *server = NULL, *channel = "flood";
 	int c, port = 0, use_ssl = 0;
 
-	while ((c = getopt(argc, argv, "c:r:sh?")) != -1) {
+	while ((c = getopt(argc, argv, "c:l:p:r:sh?")) != -1) {
 		switch (c) {
 		case 'c':
 			channel = optarg;
+			break;
+		case 'l':
+			server = optarg;
+			break;
+		case 'p':
+			port = atoi(argv[1]);
 			break;
 		case 'r':
 			send_tv.tv_sec = 0;
@@ -69,11 +75,9 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (argc > 0) {
-		server = argv[0];
-		if (argc > 1)
-			port = atoi(argv[1]);
-	}
+	if (argc > 0)
+		usage();
+	
 	putenv("EVENT_SHOW_METHOD=1");
 	event_init();
 

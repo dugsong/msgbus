@@ -4,6 +4,7 @@
 #define EVMSG_H
 
 #define EVMSG_DEFAULT_PORT	8888
+#define EVMSG_DEFAULT_SSL_PORT	4444
 
 /*
  * Open a connection to a remote msgbus. Server and port may be NULL and 0

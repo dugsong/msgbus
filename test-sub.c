@@ -21,22 +21,28 @@ recv_msg(const char *channel, const char *type, const char *sender,
 static void
 usage(void)
 {
-	fprintf(stderr, "usage: test-sub [-c channel] [-n num_subscriptions] "
-	    "[-s] [host [port]]\n");
+	fprintf(stderr, "usage: test-sub [-c channel] [-l address] [-p port] "
+	    "[-n num_connections] [-s]\n");
 	exit(1);
 }
 
 int
 main(int argc, char *argv[])
 {
-	struct rlimit rlim = { RLIM_INFINITY, RLIM_INFINITY };
+	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
 	char *server = NULL, *channel = "flood";
 	int i, num = 1, port = 0, use_ssl = 0;
 
-	while ((i = getopt(argc, argv, "c:n:sh?")) != -1) {
+	while ((i = getopt(argc, argv, "c:l:p:n:sh?")) != -1) {
 		switch (i) {
 		case 'c':
 			channel = optarg;
+			break;
+		case 'l':
+			server = optarg;
+			break;
+		case 'p':
+			port = atoi(optarg);
 			break;
 		case 'n':
 			num = atoi(optarg);
@@ -52,12 +58,11 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (argc > 0) {
-		server = argv[0];
-		if (argc > 1)
-			port = atoi(argv[1]);
-	}
-	setrlimit(RLIMIT_NOFILE, &rlim);
+	if (argc > 0)
+		usage();
+
+	/* Everybody to the limit! */
+	setrlimit(RLIMIT_NOFILE, &fhqwhgads);
 	
 	putenv("EVENT_SHOW_METHOD=1");
 	event_init();
