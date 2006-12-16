@@ -107,7 +107,12 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 	evhttp_connection_set_closecb(conn->evcon, __subscribe_open, conn);
 
 	req = evhttp_request_new(__subscribe_cb, conn);
-	
+	evhttp_add_header(req->output_headers, "Host", ctx->server);
+	evhttp_add_header(req->output_headers, "User-Agent", "libevmsg");
+	if (ctx->auth != NULL) {
+		evhttp_add_header(req->output_headers, "Authorization",
+		    ctx->auth);
+	}
 	evhttp_make_request(conn->evcon, req, EVHTTP_REQ_GET,
 	    (char *)EVBUFFER_DATA(conn->uri));
 }
@@ -156,8 +161,7 @@ evmsg_set_auth(const char *username, const char *password)
 	tmp = evbuffer_new();
 	len = evbuffer_add_printf(tmp, "%s:%s", username, password);
 	ctx->auth = malloc(len * 2);
-	b64_ntop(EVBUFFER_DATA(tmp), len,
-	    ctx->auth, len * 2);
+	b64_ntop(EVBUFFER_DATA(tmp), len, ctx->auth, len * 2);
 	evbuffer_free(tmp);
 }
 
@@ -176,6 +180,8 @@ evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
 		buf = malloc(len);
 	}
 	req = evhttp_request_new(__publish_cb, NULL);
+	evhttp_add_header(req->output_headers, "Host", ctx->server);
+	evhttp_add_header(req->output_headers, "User-Agent", "libevmsg");
 	if (ctx->auth != NULL) {
 		evhttp_add_header(req->output_headers, "Authorization",
 		    ctx->auth);

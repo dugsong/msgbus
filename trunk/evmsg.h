@@ -12,7 +12,7 @@
  */
 void evmsg_open(const char *server, u_short port, int use_ssl);
 
-/* Add credentials to publish with. */
+/* Add credentials to connect with, if needed. */
 void evmsg_set_auth(const char *username, const char *password);
 
 /* Transfer ownership of a new message buffer to be sent (and free'd). */
