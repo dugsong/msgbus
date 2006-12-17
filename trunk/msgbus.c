@@ -9,8 +9,13 @@
 #include <sys/time.h>
 #include <sys/tree.h>
 
+#include <netinet/in.h>
+#include <arpa/nameser.h>
+#include <resolv.h>
+
 #include <err.h>
 #include <fcntl.h>
+#include <pwd.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +36,7 @@ struct msgbus_ctx {
 	int		 ssl_port;
 	char		*certfile;
 	char		*docroot;
+	char		*secret;
 	int		 verbose;
 } ctx[1];
 
@@ -235,7 +241,7 @@ msgbus_path_resolve(const char *docroot, const char *uri)
 
 void
 msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
-    const char *channel)
+    const char *channel, const char *sender)
 {
 	switch (req->type) {
 	case EVHTTP_REQ_GET:
@@ -259,12 +265,9 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 	}
 	case EVHTTP_REQ_POST:
 	{
-		const char *sender, *type;
+		const char *type = evhttp_find_header(req->input_headers,
+		    "Content-Type");
 		
-		sender = auth_parse(evhttp_find_header(req->input_headers,
-					"Authorization"));
-		type = evhttp_find_header(req->input_headers, "Content-Type");
-
 		if (ctx->verbose > 2) {
 			fprintf(stderr, "PUB %s %s %s %s (%ld)\n",
 			    _evhttp_peername(req->evcon),
@@ -326,12 +329,40 @@ void
 msgbus_req_handler(struct evhttp_request *req, void *arg)
 {
 	struct msgbus_ctx *ctx = arg;
+	const char *auth;
+	char *user, *pass;
 	
 	if (req != NULL && req->evcon != NULL) {
-		if (strncmp(req->uri, "/msgbus/", 8) == 0) {
+		evhttp_add_header(req->output_headers, "Server", "msgbus");
+		auth = evhttp_find_header(req->input_headers, "Authorization");
+		user = pass = NULL;
+		
+		if ((auth = evhttp_find_header(req->input_headers,
+			 "Authorization")) != NULL &&
+		    strncasecmp(auth, "basic ", 6) == 0) {
+			int n = ((strlen(auth) * 3) / 4) + 5;
+			char *p = malloc(n);
+			
+			if ((n = b64_pton(auth + 6, (u_char *)p, n)) > 0) {
+				p[n] = '\0';
+				if ((pass = index(p, ':')) != NULL) {
+					user = p;
+					*pass++ = '\0';
+				}
+			} else
+				free(p);
+		}
+		if (ctx->secret != NULL && pass != NULL &&
+		    strcmp(ctx->secret, pass) != 0) {
+			struct evbuffer *buf = evbuffer_new();
+			evhttp_add_header(req->output_headers,
+			    "WWW-Authenticate", "Basic realm=msgbus");
+			evbuffer_add_printf(buf, "<h1>Unauthorized</h1>");
+			evhttp_send_reply(req, 401, "Unauthorized", buf);
+		} else if (strncmp(req->uri, "/msgbus/", 8) == 0) {
 			char *channel = strdup(req->uri + 8);
 			channel = strsep(&channel, "?");
-			msgbus_bus_handler(ctx, req, channel);
+			msgbus_bus_handler(ctx, req, channel, user);
 			free(channel);
 		} else if (ctx->docroot != NULL) {
 			msgbus_doc_handler(ctx, req);
@@ -341,6 +372,7 @@ msgbus_req_handler(struct evhttp_request *req, void *arg)
 			evhttp_send_reply(req, HTTP_NOTFOUND,
 			    "Not Found", buf);
 		}
+		free(user);
 	}
 }
 
@@ -354,6 +386,8 @@ usage(void)
 	    "  -l ADDRESS    address to listen on  (default: any)\n"
 	    "  -p PORT       port to listen on     (default: 8888)\n"
 	    "  -P SSL_PORT   SSL port to listen on (default: 4444)\n"
+	    "  -s SECRET     server password       (default: none)\n"
+	    "  -u USER       user/uid to run as    (default: none)\n"
 	    "  -v[v[v]]      verbose mode          (default: none)\n"
 	    );
 	exit(1);
@@ -364,6 +398,7 @@ main(int argc, char **argv)
 {
 	struct evhttp *httpd, *httpsd;
 	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
+	struct passwd *pwd = NULL;
 	struct stat st;
 	char path[MAXPATHLEN];
 	int c;
@@ -372,7 +407,7 @@ main(int argc, char **argv)
 	ctx->port = 8888;
 	ctx->ssl_port = 4444;
 	
-	while ((c = getopt(argc, argv, "c:d:l:p:P:vh?")) != -1) {
+	while ((c = getopt(argc, argv, "c:d:l:p:P:s:u:vh?")) != -1) {
 		switch (c) {
 		case 'c':
 			ctx->certfile = optarg;
@@ -388,6 +423,18 @@ main(int argc, char **argv)
 			break;
 		case 'P':
 			ctx->ssl_port = atoi(optarg);
+			break;
+		case 's':
+			ctx->secret = optarg;
+			break;
+		case 'u':
+			if (atoi(optarg) == 0) {
+				pwd = getpwnam(optarg);
+			} else {
+				pwd = getpwuid(atoi(optarg));
+			}
+			if (pwd == NULL)
+				errx(1, "unknown user/uid %s", optarg);
 			break;
 		case 'v':
 			ctx->verbose++;
@@ -406,21 +453,16 @@ main(int argc, char **argv)
 	/* Everybody to the limit! */
 	setrlimit(RLIMIT_NOFILE, &fhqwhgads);
 	
-	if (ctx->docroot != NULL) {
-		if (stat(ctx->docroot, &st) < 0 || !S_ISDIR(st.st_mode)) {
-			fprintf(stderr, "invalid document root: %s\n",
-			    ctx->docroot);
-			exit(1);
-		}
-		fprintf(stderr, "document root = %s\n", ctx->docroot);
+	if (ctx->docroot != NULL &&
+	    (stat(ctx->docroot, &st) < 0 || !S_ISDIR(st.st_mode))) {
+		errx(1, "invalid document root: %s", ctx->docroot);
 	}
 	event_init();
 
 	/* Start HTTP server. */
 	if ((httpd = evhttp_start(ctx->address, ctx->port)) != NULL) {
 		evhttp_set_gencb(httpd, msgbus_req_handler, ctx);
-		fprintf(stderr, "HTTP server on %s:%d\n",
-		    ctx->address, ctx->port);
+		warnx("HTTP server on %s:%d", ctx->address, ctx->port);
 	} else
 		err(1, "evhttp_start");
 
@@ -429,12 +471,21 @@ main(int argc, char **argv)
 		if ((httpsd = evhttp_start_ssl(ctx->address, ctx->ssl_port,
 			 ctx->certfile)) != NULL) {
 			evhttp_set_gencb(httpsd, msgbus_req_handler, ctx);
-			fprintf(stderr, "server certificate = %s\n"
-			    "HTTPS server on %s:%d\n", ctx->certfile,
-			    ctx->address, ctx->ssl_port);
+			warnx("HTTPS server on %s:%d\n"
+			    "server certificate = %s",
+			    ctx->address, ctx->ssl_port, ctx->certfile);
 		} else
 			err(1, "evhttp_start_ssl");
 	}
+	if (pwd != NULL) {
+		warnx("uid %d -> %d, gid %d -> %d",
+		    getuid(), pwd->pw_uid, getgid(), pwd->pw_gid);
+		if (setgid(pwd->pw_gid) < 0 || setuid(pwd->pw_uid) < 0)
+			err(1, "setuid");
+	}
+	if (ctx->docroot != NULL)
+		warnx("document root = %s", ctx->docroot);
+	
 	event_dispatch();
 	
 	/* NOTREACHED */
