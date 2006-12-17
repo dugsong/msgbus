@@ -8,7 +8,7 @@ evmsg_SRCS=	evmsg.c
 NOPROFILE=	yes
 
 PROGS=		msgbus test-pub test-sub
-msgbus_SRCS=	auth.c match.c mimetype.c msgbus.c
+msgbus_SRCS=	match.c mimetype.c msgbus.c
 msgbus_LDADD=	${event_LDADD}
 test-pub_SRCS=	test-pub.c
 test-pub_LDADD=	-L. -levmsg ${event_LDADD}
