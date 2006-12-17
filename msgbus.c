@@ -24,7 +24,6 @@
 #include "event.h"
 #include "evhttp.h"
 
-#include "auth.h"
 #include "match.h"
 #include "mimetype.h"
 
