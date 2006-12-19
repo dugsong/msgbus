@@ -33,9 +33,9 @@ struct msgbus_ctx {
 	char		*address;
 	int		 port;
 	int		 ssl_port;
-	char		*certfile;
-	char		*docroot;
-	char		*secret;
+	const char	*certfile;
+	const char	*docroot;
+	const char	*secret;
 	int		 verbose;
 } ctx[1];
 
@@ -351,11 +351,11 @@ msgbus_req_handler(struct evhttp_request *req, void *arg)
 			} else
 				free(p);
 		}
-		if (ctx->secret != NULL && pass != NULL &&
-		    strcmp(ctx->secret, pass) != 0) {
+		if (ctx->secret != NULL && (pass == NULL ||
+			strcmp(ctx->secret, pass) != 0)) {
 			struct evbuffer *buf = evbuffer_new();
 			evhttp_add_header(req->output_headers,
-			    "WWW-Authenticate", "Basic realm=msgbus");
+			    "WWW-Authenticate", "Basic realm=\"msgbus\"");
 			evbuffer_add_printf(buf, "<h1>Unauthorized</h1>");
 			evhttp_send_reply(req, 401, "Unauthorized", buf);
 		} else if (strncmp(req->uri, "/msgbus/", 8) == 0) {
