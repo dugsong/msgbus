@@ -137,7 +137,7 @@ msgbus_deliver(const char *channel, const char *sender, const char *type,
 	}
 }
 
-void
+static void
 msgbus_sub_close(struct evhttp_connection *evcon, void *arg)
 {
 	struct msgbus_sub *sub = (struct msgbus_sub *)arg;
@@ -163,7 +163,7 @@ msgbus_sub_close(struct evhttp_connection *evcon, void *arg)
 	}
 }
 
-void
+static void
 msgbus_sub_open(struct evhttp_request *req,
     const char *channel, const char *sender, const char *type)
 {
@@ -201,7 +201,7 @@ msgbus_sub_open(struct evhttp_request *req,
 	}
 }
 
-const char *
+static const char *
 msgbus_path_resolve(const char *docroot, const char *uri)
 {
 	static char path[MAXPATHLEN];
@@ -238,7 +238,7 @@ msgbus_path_resolve(const char *docroot, const char *uri)
 	return (path);
 }
 
-void
+static void
 msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
     const char *channel, const char *sender)
 {
@@ -285,7 +285,7 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 	}
 }
 
-void
+static void
 msgbus_doc_handler(struct msgbus_ctx *ctx, struct evhttp_request *req)
 {
 	struct evbuffer *buf;
@@ -324,7 +324,7 @@ msgbus_doc_handler(struct msgbus_ctx *ctx, struct evhttp_request *req)
 	evbuffer_free(buf);
 }
 
-void
+static void
 msgbus_req_handler(struct evhttp_request *req, void *arg)
 {
 	struct msgbus_ctx *ctx = arg;

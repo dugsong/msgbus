@@ -34,9 +34,10 @@ _strlower(char *str)
 	return (str);
 }
 
+RB_PROTOTYPE(mime_tree, mime_entry, next, _compare);
 RB_GENERATE(mime_tree, mime_entry, next, _compare);
 
-void
+static void
 mimetype_add(const char *ext, const char *type)
 {
 	struct mime_entry *tmp, *m = malloc(sizeof(*m));
@@ -50,7 +51,7 @@ mimetype_add(const char *ext, const char *type)
 	}
 }
 
-const char *
+static const char *
 _mimetype_guess_file(const char *path)
 {
 	static char line[BUFSIZ];

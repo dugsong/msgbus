@@ -14,7 +14,7 @@ struct event	send_ev, stats_ev;
 struct timeval	send_tv = { 1, 0 }, stats_tv = { 5, 0 };
 int		send_cnt;
 
-void
+static void
 send_msg(int fd, short event, void *arg)
 {
 	static int i;
@@ -27,7 +27,7 @@ send_msg(int fd, short event, void *arg)
 	event_add(&send_ev, &send_tv);
 }
 
-void
+static void
 print_stats(int fd, short event, void *arg)
 {
 	printf("%.1f msgs/s\n", ((float)send_cnt) / stats_tv.tv_sec);

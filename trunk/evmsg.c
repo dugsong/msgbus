@@ -92,7 +92,7 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 	}
 }
 
-void
+static void
 __subscribe_open(struct evhttp_connection *evcon, void *arg)
 {
 	struct evmsg_conn *conn = arg;
@@ -117,7 +117,7 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 	    (char *)EVBUFFER_DATA(conn->uri));
 }
 
-void
+static void
 __uri_escape(struct evbuffer *buf)
 {
 	char *p = evhttp_encode_uri((char *)EVBUFFER_DATA(buf));
