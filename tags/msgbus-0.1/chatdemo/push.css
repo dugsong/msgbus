@@ -1,0 +1,47 @@
+
+#chat {
+
+}
+
+#send {
+    background: lightblue;
+    padding: 5px;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+    margin-bottom: 5px;
+}
+
+#cinput {
+    font-family: 'Trebuchet MS', Verdana, sans-serif;
+	color: #827B7C; 
+	font-size: medium;
+    font-weight: bold;
+}
+
+#receive {	
+    background: lightblue;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+    padding: 5px;
+}
+
+#reply {
+	font-family: 'Trebuchet MS', Verdana, sans-serif;
+	height: 14em;
+    background: #E6EEFF;
+    margin-left: 1px;
+    padding-top: 3px;
+    padding-left: 4px;
+
+}
+
+.title {
+    font-weight: bold;
+    margin: 3px;
+}
+
+.note {
+    font-size: small;
+    padding: 5px;
+    background-color: #FFFFFF;	
+}

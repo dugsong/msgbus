@@ -1,0 +1,514 @@
+Index: http.c
+===================================================================
+--- http.c	(revision 1939)
++++ http.c	(working copy)
+@@ -54,6 +54,13 @@
+ #include <netdb.h>
+ #endif
+ 
++#define HAVE_OPENSSL 1 // XXX - replace with configure magic...
++#define OPENSSL_NO_KRB5	1
++#ifdef HAVE_OPENSSL
++#include <openssl/ssl.h>
++#include <openssl/err.h>
++#endif
++
+ #include <assert.h>
+ #include <ctype.h>
+ #include <errno.h>
+@@ -78,6 +85,11 @@
+ #include "log.h"
+ #include "http-internal.h"
+ 
++
++#ifdef HAVE_OPENSSL
++SSL_CTX	*evhttp_ssl_ctx;
++#endif
++
+ #ifndef HAVE_GETADDRINFO
+ struct addrinfo {
+ 	int ai_family;
+@@ -238,7 +250,52 @@
+ 	}
+ }
+ 
++#ifdef HAVE_OPENSSL
+ void
++evhttp_ssl_init(void)
++{
++	if (evhttp_ssl_ctx == NULL) {
++		SSL_load_error_strings();
++		SSL_library_init();
++		evhttp_ssl_ctx = SSL_CTX_new(SSLv23_method());
++		SSL_CTX_set_default_verify_paths(evhttp_ssl_ctx);
++	}
++}
++
++int
++evhttp_ssl_retry(struct evhttp_connection *evcon, int ssl_err)
++{
++	int ret = 1;
++	
++	switch (SSL_get_error(evcon->ssl, ssl_err)) {
++	case SSL_ERROR_NONE:
++		ret = 0;
++		break;
++	case SSL_ERROR_WANT_READ:
++		event_del(&evcon->ev);
++		event_set(&evcon->ev, evcon->fd, EV_READ,
++		    evcon->ev.ev_callback, evcon->ev.ev_arg);
++		evhttp_add_event(&evcon->ev, evcon->timeout,
++		    HTTP_READ_TIMEOUT);
++		break;
++	case SSL_ERROR_WANT_WRITE:
++		event_del(&evcon->ev);
++		event_set(&evcon->ev, evcon->fd, EV_READ|EV_WRITE,
++		    evcon->ev.ev_callback, evcon->ev.ev_arg);
++		evhttp_add_event(&evcon->ev, evcon->timeout,
++		    HTTP_WRITE_TIMEOUT);
++		break;
++	default:
++		event_warnx("%s: %s\n", __func__,
++		    ERR_error_string(ssl_err, NULL));
++		ret = -1;
++		break;
++	}
++	return (ret);
++}
++#endif
++
++void
+ evhttp_write_buffer(struct evhttp_connection *evcon,
+     void (*cb)(struct evhttp_connection *, void *), void *arg)
+ {
+@@ -500,21 +557,36 @@
+ 	if (what == EV_TIMEOUT) {
+ 		evhttp_connection_fail(evcon, EVCON_HTTP_TIMEOUT);
+ 		return;
++#ifdef HAVE_OPENSSL
++	} else if (evcon->ssl != NULL) {
++		int ret;
++		
++		n = SSL_write(evcon->ssl,
++		    EVBUFFER_DATA(evcon->output_buffer),
++		    EVBUFFER_LENGTH(evcon->output_buffer));
++		if ((ret = evhttp_ssl_retry(evcon, n)) != 0) {
++			if (ret == -1) {
++				event_warnx("%s: bad SSL_write on %d\n",
++				    __func__, fd);
++				evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
++			}
++			return;
++		}
++		evbuffer_drain(evcon->output_buffer, n);
++#endif
++	} else {
++		n = evbuffer_write(evcon->output_buffer, fd);
++		if (n == -1) {
++			event_warn("%s: evbuffer_write", __func__);
++			evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
++			return;
++		}
++		if (n == 0) {
++			event_warnx("%s: write nothing\n", __func__);
++			evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
++			return;
++		}
+ 	}
+-
+-	n = evbuffer_write(evcon->output_buffer, fd);
+-	if (n == -1) {
+-		event_warn("%s: evbuffer_write", __func__);
+-		evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
+-		return;
+-	}
+-
+-	if (n == 0) {
+-		event_warnx("%s: write nothing\n", __func__);
+-		evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
+-		return;
+-	}
+-
+ 	if (EVBUFFER_LENGTH(evcon->output_buffer) != 0) {
+ 		evhttp_add_event(&evcon->ev, 
+ 		    evcon->timeout, HTTP_WRITE_TIMEOUT);
+@@ -637,25 +709,41 @@
+ 	struct evhttp_connection *evcon = arg;
+ 	struct evhttp_request *req = TAILQ_FIRST(&evcon->requests);
+ 	struct evbuffer *buf = evcon->input_buffer;
+-	int n, len;
++	int n;
+ 
+ 	if (what == EV_TIMEOUT) {
+ 		evhttp_connection_fail(evcon, EVCON_HTTP_TIMEOUT);
+ 		return;
++#ifdef HAVE_OPENSSL
++	} else if (evcon->ssl != NULL) {
++		u_char rbuf[4096];
++		int ret;
++		
++		n = SSL_read(evcon->ssl, rbuf, sizeof(rbuf));
++		if ((ret = evhttp_ssl_retry(evcon, n)) != 0) {
++			if (ret == -1) {
++				event_warnx("%s: bad SSL_read on %d\n",
++				    __func__, fd);
++				evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
++			}
++			return;
++		}
++		evbuffer_add(buf, rbuf, n);
++#endif
++	} else {
++		n = evbuffer_read(buf, fd, -1);
++		event_debug(("%s: got %d on %d\n", __func__, n, fd));
++		
++		if (n == -1) {
++			event_warn("%s: evbuffer_read", __func__);
++			evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
++			return;
++		} else if (n == 0) {
++			/* Connection closed */
++			evhttp_connection_done(evcon);
++			return;
++		}
+ 	}
+-	n = evbuffer_read(buf, fd, -1);
+-	len = EVBUFFER_LENGTH(buf);
+-	event_debug(("%s: got %d on %d\n", __func__, n, fd));
+-	
+-	if (n == -1) {
+-		event_warn("%s: evbuffer_read", __func__);
+-		evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
+-		return;
+-	} else if (n == 0) {
+-		/* Connection closed */
+-		evhttp_connection_done(evcon);
+-		return;
+-	}
+ 	if (req->chunked) {
+ 		int res = evhttp_handle_chunked_read(req, buf);
+ 		if (res == 1) {
+@@ -671,7 +759,7 @@
+ 	} else if (req->ntoread < 0) {
+ 		/* Read until connection close. */
+ 		evbuffer_add_buffer(req->input_buffer, buf);
+-	} else if (len >= req->ntoread) {
++	} else if (EVBUFFER_LENGTH(buf) >= req->ntoread) {
+ 		/* Completed content length */
+ 		evbuffer_add(req->input_buffer, EVBUFFER_DATA(buf),
+ 		    req->ntoread);
+@@ -729,9 +817,13 @@
+ 	if (event_initialized(&evcon->ev))
+ 		event_del(&evcon->ev);
+ 	
+-	if (evcon->fd != -1)
++	if (evcon->fd != -1) {
++#ifdef HAVE_OPENSSL
++		if (evcon->ssl != NULL)
++			SSL_free(evcon->ssl);
++#endif
+ 		close(evcon->fd);
+-
++	}
+ 	if (evcon->address != NULL)
+ 		free(evcon->address);
+ 
+@@ -796,6 +888,11 @@
+ static void
+ evhttp_connection_start_detectclose(struct evhttp_connection *evcon)
+ {
++#ifdef HAVE_OPENSSL
++	/* XXX - how to support this, when SSL can renegotiate at any time? */
++	if (evcon->ssl != NULL)
++		return;
++#endif
+ 	evcon->flags |= EVHTTP_CON_CLOSEDETECT;
+ 
+ 	if (event_initialized(&evcon->close_ev))
+@@ -808,6 +905,10 @@
+ static void
+ evhttp_connection_stop_detectclose(struct evhttp_connection *evcon)
+ {
++#ifdef HAVE_OPENSSL
++	if (evcon->ssl != NULL)
++		return;
++#endif
+ 	evcon->flags &= ~EVHTTP_CON_CLOSEDETECT;
+ 	event_del(&evcon->close_ev);
+ }
+@@ -831,7 +932,7 @@
+ 	struct evhttp_connection *evcon = arg;
+ 	int error;
+ 	socklen_t errsz = sizeof(error);
+-		
++
+ 	if (what == EV_TIMEOUT) {
+ 		event_warnx("%s: connection timeout for \"%s:%d\" on %d\n",
+ 		    __func__, evcon->address, evcon->port, evcon->fd);
+@@ -852,7 +953,6 @@
+ 		    strerror(error));
+ 		goto cleanup;
+ 	}
+-
+ 	/* We are connected to the server now */
+ 	event_debug(("%s: connected to \"%s:%d\" on %d\n",
+ 			__func__, evcon->address, evcon->port, evcon->fd));
+@@ -960,7 +1060,7 @@
+ 	version = strsep(&line, " ");
+ 	if (line != NULL)
+ 		return (-1);
+-
++	
+ 	/* First line */
+ 	if (strcmp(method, "GET") == 0) {
+ 		req->type = EVHTTP_REQ_GET;
+@@ -1152,7 +1252,7 @@
+ 
+ 	content_length = evhttp_find_header(headers, "Content-Length");
+ 	connection = evhttp_find_header(headers, "Connection");
+-		
++	
+ 	if (content_length == NULL && connection == NULL)
+ 		req->ntoread = -1;
+ 	else if (content_length == NULL &&
+@@ -1227,7 +1327,24 @@
+ 		evhttp_connection_fail(evcon, EVCON_HTTP_TIMEOUT);
+ 		return;
+ 	}
+-
++#ifdef HAVE_OPENSSL
++	if (evcon->ssl != NULL) {
++		u_char rbuf[4096];
++		int ret;
++		
++		n = SSL_read(evcon->ssl, rbuf, sizeof(rbuf));
++		ret = evhttp_ssl_retry(evcon, n);
++		if (ret != 0) {
++			if (ret == -1) {
++				event_warnx("%s: bad SSL_read on %d\n",
++				    __func__, fd);
++				evhttp_connection_fail(evcon, EVCON_HTTP_EOF);
++			}
++			return;
++		}
++		evbuffer_add(evcon->input_buffer, rbuf, n);
++	} else
++#endif
+ 	n = evbuffer_read(evcon->input_buffer, fd, -1);
+ 	if (n == 0) {
+ 		event_warnx("%s: no more data on %d\n", __func__, fd);
+@@ -1336,6 +1453,21 @@
+ 	return (NULL);
+ }
+ 
++#ifdef HAVE_OPENSSL
++struct evhttp_connection *
++evhttp_connection_new_ssl(const char *address, unsigned short port)
++{
++	struct evhttp_connection *evcon = evhttp_connection_new(address, port);
++
++	evhttp_ssl_init();
++	
++	if (evcon != NULL) {
++		evcon->ssl = SSL_new(evhttp_ssl_ctx);
++	}
++	return (evcon);
++}
++#endif
++
+ void
+ evhttp_connection_set_timeout(struct evhttp_connection *evcon,
+     int timeout_in_secs)
+@@ -1384,7 +1516,12 @@
+ 		    __func__, evcon->address, evcon->port);
+ 		return (-1);
+ 	}
+-
++#ifdef HAVE_OPENSSL
++	if (evcon->ssl != NULL) {
++		SSL_set_connect_state(evcon->ssl);
++		SSL_set_fd(evcon->ssl, evcon->fd);
++	}
++#endif
+ 	/* Set up a callback for successful connection setup */
+ 	event_set(&evcon->ev, evcon->fd, EV_WRITE, evhttp_connectioncb, evcon);
+ 	evhttp_add_event(&evcon->ev, evcon->timeout, HTTP_CONNECT_TIMEOUT);
+@@ -1466,9 +1603,10 @@
+ 	/* delete possible close detection events */
+ 	evhttp_connection_stop_detectclose(evcon);
+ 	
+-	need_close = evhttp_is_connection_close(req->input_headers) ||
+-	    evhttp_is_connection_close(req->output_headers);
+-
++	need_close = (!(req->major == 1 && req->minor == 1) ||
++	    (evhttp_is_connection_close(req->input_headers) ||
++	     evhttp_is_connection_close(req->output_headers)));
++	
+ 	assert(req->flags & EVHTTP_REQ_OWN_CONNECTION);
+ 	evhttp_request_free(req);
+ 
+@@ -1728,7 +1866,6 @@
+ 		if (value == NULL)
+ 			goto error;
+ 
+-		event_warnx("Got: %s -> %s\n", key, value);
+ 		evhttp_add_header(headers, key, value);
+ 	}
+ 
+@@ -1856,6 +1993,31 @@
+ 	return (http);
+ }
+ 
++#ifdef HAVE_OPENSSL
++struct evhttp *
++evhttp_start_ssl(const char *address, u_short port, const char *certfile)
++{
++	struct evhttp *http = evhttp_start(address, port);
++
++	evhttp_ssl_init();
++	
++	if (http != NULL) {
++		if ((http->ssl_ctx = SSL_CTX_new(SSLv23_method())) != NULL) {
++			if (SSL_CTX_use_certificate_file(http->ssl_ctx,
++				certfile, SSL_FILETYPE_PEM) == 1 &&
++			    SSL_CTX_use_PrivateKey_file(http->ssl_ctx,
++				certfile, SSL_FILETYPE_PEM) == 1 && 
++			    SSL_CTX_check_private_key(http->ssl_ctx) == 1) {
++				return (http);
++			}
++		}
++		evhttp_free(http);
++		http = NULL;
++	}
++	return (http);
++}
++#endif
++
+ void
+ evhttp_free(struct evhttp* http)
+ {
+@@ -1877,7 +2039,10 @@
+ 		free(http_cb->what);
+ 		free(http_cb);
+ 	}
+-	
++#ifdef HAVE_OPENSSL
++	if (http->ssl_ctx != NULL)
++		SSL_CTX_free(http->ssl_ctx);
++#endif
+ 	free(http);
+ }
+ 
+@@ -2059,6 +2224,16 @@
+ 	if (evcon == NULL)
+ 		return;
+ 
++#ifdef HAVE_OPENSSL
++	if (http->ssl_ctx != NULL) {
++		if ((evcon->ssl = \
++			SSL_new(http->ssl_ctx)) != NULL) {
++			SSL_set_fd(evcon->ssl, evcon->fd);
++			SSL_set_accept_state(evcon->ssl);
++		} else
++			return;
++	}
++#endif
+ 	/* the timeout can be used by the server to close idle connections */
+ 	if (http->timeout != -1)
+ 		evhttp_connection_set_timeout(evcon, http->timeout);
+Index: http-internal.h
+===================================================================
+--- http-internal.h	(revision 1939)
++++ http-internal.h	(working copy)
+@@ -56,7 +56,10 @@
+ 	int timeout;			/* timeout in seconds for events */
+ 	int retry_cnt;			/* retry count */
+ 	int retry_max;			/* maximum number of retries */
+-	
++
++#ifdef HAVE_OPENSSL
++	SSL *ssl;
++#endif
+ 	enum evhttp_connection_state state;
+ 
+ 	/* for server connections, the http server they are connected with */
+@@ -89,6 +92,9 @@
+ 	TAILQ_HEAD(httpcbq, evhttp_cb) callbacks;
+         struct evconq connections;
+ 
++#ifdef HAVE_OPENSSL
++	SSL_CTX *ssl_ctx;
++#endif
+         int timeout;
+ 
+ 	void (*gencb)(struct evhttp_request *req, void *);
+Index: evhttp.h
+===================================================================
+--- evhttp.h	(revision 1939)
++++ evhttp.h	(working copy)
+@@ -66,6 +66,13 @@
+ struct evhttp *evhttp_start(const char *address, u_short port);
+ 
+ /*
++ * Start an HTTPS server on the specified address and port,
++ * using the specified PEM-encoded certificate / private key
++ */
++struct evhttp *evhttp_start_ssl(const char *address, u_short port,
++    const char *certfile);
++	
++/*
+  * Free the previously create HTTP server.  Works only if no requests are
+  * currently being served.
+  */
+@@ -159,6 +166,9 @@
+ struct evhttp_connection *evhttp_connection_new(
+ 	const char *address, unsigned short port);
+ 
++struct evhttp_connection *evhttp_connection_new_ssl(
++	const char *address, unsigned short port);
++
+ /* Frees an http connection */
+ void evhttp_connection_free(struct evhttp_connection *evcon);
+ 
+Index: Makefile.am
+===================================================================
+--- Makefile.am	(revision 1939)
++++ Makefile.am	(working copy)
+@@ -21,7 +21,7 @@
+ 	WIN32-Prj/libevent.dsw WIN32-Prj/signal_test/signal_test.dsp \
+ 	WIN32-Prj/time_test/time_test.dsp
+ 
+-lib_LTLIBRARIES = libevent.la
++lib_LTLIBRARIES = libevent.la libevhttp.la
+ 
+ if BUILD_WIN32
+ 
+@@ -40,11 +40,15 @@
+ endif
+ 
+ libevent_la_SOURCES = event.c buffer.c evbuffer.c log.c event_tagging.c \
+-	http.c evhttp.h http-internal.h evdns.c evdns.h evrpc.c \
++	evdns.c evdns.h evrpc.c \
+ 	evrpc.h evrpc-internal.h $(SYS_SRC)
+ libevent_la_LIBADD = @LTLIBOBJS@ $(SYS_LIBS)
+ libevent_la_LDFLAGS = -release @VERSION@ -version-info 1:3:0
+ 
++libevhttp_la_SOURCES = http.c evhttp.h http-internal.h 
++libevhttp_la_LIBADD = @LTLIBOBJS@ $(SYS_LIBS) -lssl -lcrypto
++libevhttp_la_LDFLAGS = -release @VERSION@ -version-info 1:3:0
++
+ include_HEADERS = event.h evhttp.h evdns.h
+ 
+ INCLUDES = -Icompat $(SYS_INCLUDES)
+Index: test/Makefile.am
+===================================================================
+--- test/Makefile.am	(revision 1939)
++++ test/Makefile.am	(working copy)
+@@ -1,6 +1,6 @@
+ AUTOMAKE_OPTIONS = foreign no-dependencies
+ 
+-LDADD = ../libevent.la
++LDADD = ../libevent.la ../libevhttp.la
+ CPPFPLAGS = -I.. 
+ CFLAGS = -I../compat @CFLAGS@
+ 
