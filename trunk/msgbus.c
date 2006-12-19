@@ -16,6 +16,7 @@
 #include <err.h>
 #include <fcntl.h>
 #include <pwd.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -392,6 +393,11 @@ usage(void)
 	exit(1);
 }
 
+static void
+ignore_cb(int sig, short what, void *arg)
+{
+}
+
 int
 main(int argc, char **argv)
 {
@@ -399,6 +405,7 @@ main(int argc, char **argv)
 	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
 	struct passwd *pwd = NULL;
 	struct stat st;
+	struct event pipe_ev;
 	char path[MAXPATHLEN];
 	int c;
 
@@ -458,6 +465,10 @@ main(int argc, char **argv)
 	}
 	event_init();
 
+	/* Ignore SIGPIPE. */
+	signal_set(&pipe_ev, SIGPIPE, ignore_cb, NULL);
+	signal_add(&pipe_ev, NULL);
+	
 	/* Start HTTP server. */
 	if ((httpd = evhttp_start(ctx->address, ctx->port)) != NULL) {
 		evhttp_set_gencb(httpd, msgbus_req_handler, ctx);
