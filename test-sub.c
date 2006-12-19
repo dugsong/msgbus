@@ -11,7 +11,7 @@
 #include "event.h"
 #include "evmsg.h"
 
-void
+static void
 recv_msg(const char *channel, const char *type, const char *sender,
     struct evbuffer *msg, void *arg)
 {
