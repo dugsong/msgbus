@@ -12,6 +12,9 @@ msgbus
 libevmsg
 	evented client publish/subscribe API. requires libevent.
 
+python
+	Python bindings for libevmsg, plus a demo chat client.
+
 msgsend, msgdump
 	trivial Python demo clients
 
