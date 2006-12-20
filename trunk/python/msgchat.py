@@ -11,7 +11,8 @@ def recv_stdin(channel):
     if not buf:
         event.abort()
     else:
-        evmsg.publish(channel, 'text/html', buf.strip())
+        if buf.strip():
+            evmsg.publish(channel, 'text/html', buf.strip())
         return True
 
 def main():
