@@ -5,39 +5,27 @@
 import httplib, optparse, re, sys, time, urllib
 
 def main():
-    op = optparse.OptionParser(usage='%prog [OPTIONS] CHANNEL')
+    op = optparse.OptionParser(usage='%prog [OPTIONS] [URL]')
     op.add_option('-v', dest='verbose', help='enable verbose output',
                   action='store_true')
-    op.add_option('-d', dest='address', default='127.0.0.1',
-                  help='specify alternate destination address')
-    op.add_option('-p', dest='port', default=8888, type='int',
-                  help='specify alternate destination port')
     op.add_option('-s', dest='sender',
                   help='subscribe to messages from this sender')
     op.add_option('-t', dest='type',
                   help='subscribe to messages of this type')
     opts, args = op.parse_args(sys.argv[1:])
     if not args:
-        op.error('no channel specified')
-        
-    channel = ' '.join(args)
-    uri = '/msgbus/%s?%s' % (channel, urllib.urlencode(dict(filter(
-        lambda x: x[1], (('sender', opts.sender), ('type', opts.type))))))
-    try:
-        h = httplib.HTTP(host=opts.address, port=opts.port)
-        h.putrequest('GET', uri)
-        h.endheaders()
-        status, reason, hdrs = h.getreply()
-    except httplib.socket.error, msg:
-        raise SystemExit, 'connect to %s:%s: %s' % \
-              (opts.address, opts.port, msg[1])
-    
-    if status != 200:
-        raise SystemExit, 'HTTP %s %s' % (status, reason)
+        args.append('http://localhost:8888/msgbus/flood')
+
+    l = [ args[0], '%s' % urllib.urlencode(dict(filter(lambda x: x[1],
+            (('sender', opts.sender), ('type', opts.type))))) ]
+    url = '?'.join(filter(None, l))
+
+    f = urllib.urlopen(url)
+    hdrs = f.info()
     mp = re.compile('^multipart/.*boundary="?([^;"\n]*)', re.I|re.S)
     boundary = '--' + mp.match(hdrs['content-type']).group(1)
     
-    f = h.getfile()
+    print >>sys.stderr, 'subscribed to', url
     try:
         while 1:
             assert f.readline().strip() == boundary
