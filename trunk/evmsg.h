@@ -7,15 +7,15 @@
 #define EVMSG_DEFAULT_SSL_PORT	4444
 
 /*
- * Open a connection to a remote msgbus. Server and port may be NULL and 0
- * to connect to the default local msgbus.
+ * Setup to open a connection to a remote msgbus. Server and port may
+ * be NULL and 0 to connect to the default local msgbus.
  */
 void evmsg_open(const char *server, u_short port, int use_ssl);
 
 /* Add credentials to connect with, if needed. */
 void evmsg_set_auth(const char *username, const char *password);
 
-/* Transfer ownership of a new message buffer to be sent (and free'd). */
+/* Transfer ownership of a new message buffer to be sent (and freed). */
 int evmsg_publish(const char *channel, const char *type, struct evbuffer *msg);
 
 /*
