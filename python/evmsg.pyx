@@ -3,6 +3,17 @@
 #
 # $Id$
 
+"""evented msgbus client library
+
+This module provides publish/subscribe access to a remote msgbus server,
+using libevent. The python event module must be imported first.
+"""
+
+__author__ = 'Dug Song <dugsong@monkey.org>'
+__copyright__ = 'Copyright (c) 2006 Dug Song'
+__license__ = 'BSD license'
+__url__ = 'http://code.google.com/p/msgbus/'
+
 cdef extern from "Python.h":
     object	PyBuffer_FromMemory(char *s, int len)
 
@@ -42,7 +53,16 @@ cdef void __subscribe_cb(char *channel, char *type, char *sender,
                  *sub.args)
 
 def open(server=None, port=None, use_ssl=False):
-    """Open our msgbus connection."""
+    """open(server=None, port=None, use_ssl=False)
+    
+    Open our msgbus connection.
+
+    Keyword arguments:
+
+    server  -- hostname or IP address to connect to (default localhost)
+    port    -- destination port (default 8888, or 4444 for SSL)
+    use_ssl -- enable HTTPS (default False)
+    """
     if server is None:
         server = '127.0.0.1'
     if port is None:
@@ -53,11 +73,23 @@ def open(server=None, port=None, use_ssl=False):
     evmsg_open(server, port, use_ssl)
 
 def set_auth(username, password):
-    """Set a username and password to connect with."""
+    """set_auth(username, password)
+    
+    Set a username and password to connect with.
+    """
     evmsg_set_auth(username, password)
 
 def publish(channel, type, msg):
-    """Publish a message."""
+    """publish(channel, type, msg)
+
+    Publish a message.
+
+    Arguments:
+
+    channel -- channel to publish to
+    type    -- content type
+    msg     -- message string or buffer
+    """
     cdef evbuffer *buf
     buf = evbuffer_new()
     evbuffer_add(buf, msg, len(msg))
@@ -92,5 +124,8 @@ cdef class subscribe:
         evmsg_unsubscribe(self.handle)
 
 def close():
-    """Close our msgbus connection."""
+    """close()
+
+    Close our msgbus connection.
+    """
     evmsg_close()
