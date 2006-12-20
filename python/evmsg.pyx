@@ -117,10 +117,8 @@ cdef class subscribe:
         self.args = args
         self.handle = evmsg_subscribe(channel, type, sender,
                                       __subscribe_cb, <void *>self)
-        print "SUB"
 
     def __dealloc__(self):
-        print "UNSUB"
         evmsg_unsubscribe(self.handle)
 
 def close():
