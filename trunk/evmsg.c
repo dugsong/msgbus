@@ -47,6 +47,7 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 	struct evmsg_conn *conn = arg;
 	
 	if (req == NULL || req->evcon == NULL) {
+		/* XXX - how to handle errors? user callback with NULLs ? */
 		return;
 	}
 	/* Parse the multipart boundary, once. */
@@ -160,8 +161,9 @@ evmsg_set_auth(const char *username, const char *password)
 	assert(username != NULL && password != NULL);
 	tmp = evbuffer_new();
 	len = evbuffer_add_printf(tmp, "%s:%s", username, password);
-	ctx->auth = malloc(len * 2);
-	b64_ntop(EVBUFFER_DATA(tmp), len, ctx->auth, len * 2);
+	ctx->auth = malloc(6 + len * 2);
+	strcpy(ctx->auth, "Basic ");
+	b64_ntop(EVBUFFER_DATA(tmp), len, ctx->auth + 6, len * 2);
 	evbuffer_free(tmp);
 }
 
