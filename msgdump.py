@@ -29,6 +29,7 @@ def main():
     try:
         while 1:
             assert f.readline().strip() == boundary
+            # urllib only supports HTTP/1.0
             msg = httplib.HTTPMessage(f, 0)
             buf = f.read(int(msg['content-length']))
             print '%s %s %s (%s)' % (time.time(), msg.get('from', '?'),
