@@ -6,7 +6,7 @@ import httplib, optparse, re, sys, time, urllib
 
 def main():
     op = optparse.OptionParser(usage='%prog [OPTIONS] URL|channel')
-    op.add_option('-v', dest='verbose', help='enable verbose output',
+    op.add_option('-q', dest='quiet', help='enable quiet output',
                   action='store_true')
     op.add_option('-s', dest='sender',
                   help='subscribe to messages from this sender')
@@ -39,7 +39,7 @@ def main():
             buf = f.read(int(msg['content-length']))
             print '%s %s %s (%s)' % (time.time(), msg.get('from', '?'),
                                      msg['content-type'], len(buf))
-            if opts.verbose:
+            if not opts.quiet:
                 print `buf`
     except KeyboardInterrupt:
         print >>sys.stderr, 'exiting at user request'
