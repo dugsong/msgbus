@@ -67,7 +67,7 @@ def open(server=None, port=None, use_ssl=False):
         server = '127.0.0.1'
     if port is None:
         if use_ssl:
-            port = EVMSG_DEFAULT_PORT_SSL
+            port = EVMSG_DEFAULT_SSL_PORT
         else:
             port = EVMSG_DEFAULT_PORT
     evmsg_open(server, port, use_ssl)
