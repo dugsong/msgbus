@@ -4,6 +4,22 @@
 
 import base64, httplib, optparse, sys, urlparse
 
+# XXX - work around urlparse.urlsplit() < Python 2.5
+def parse_netloc(scheme, netloc):
+    l = netloc.split('@')
+    if len(l) == 2:
+        username, password = l.pop(0).split(':')
+    else:
+        username = password = None
+    l = l[0].split(':')
+    if len(l) == 2:
+        hostname = l[0]
+        port = int(l[1])
+    else:
+        hostname = l[0]
+        port = scheme == 'https' and 443 or 80
+    return username, password, hostname, port
+
 def main():
     op = optparse.OptionParser(usage='%prog [OPTIONS] URL|channel')
     op.add_option('-f', dest='filename',
@@ -19,9 +35,11 @@ def main():
     else:
         url = args[0]
         
-    p = urlparse.urlsplit(url)
-    if not p.path.startswith('/msgbus/'):
+    scheme, netloc, path, query, fragment = urlparse.urlsplit(url)
+    if not path.startswith('/msgbus/'):
         raise ValueError, 'invalid msgbus URL: %s' % url
+    channel = path[8:]
+    username, password, hostname, port = parse_netloc(scheme, netloc)
     
     f = opts.filename and open(opts.filename) or sys.stdin
     buf = f.read()
@@ -30,15 +48,15 @@ def main():
         'Content-Length':str(len(buf)),
         'Connection':'close'
         }
-    if p.username and p.password:
-        s = '%s:%s' % (p.username, p.password)
+    if username and password:
+        s = '%s:%s' % (username, password)
         hdrs['Authorization'] = 'Basic %s' % base64.encodestring(s.strip())
 
-    if p.scheme == 'https':
-        conn = httplib.HTTPSConnection('%s:%s' % (p.hostname, p.port or 4444))
+    if scheme == 'https':
+        conn = httplib.HTTPSConnection('%s:%s' % (hostname, port or 4444))
     else:
-        conn = httplib.HTTPConnection('%s:%s' % (p.hostname, p.port or 8888))
-    conn.request('POST', p.path, buf, hdrs)
+        conn = httplib.HTTPConnection('%s:%s' % (hostname, port or 8888))
+    conn.request('POST', path, buf, hdrs)
     res = conn.getresponse()
     if res.status != 204:
         raise RuntimeError, (res.status, res.reason)
