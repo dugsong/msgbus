@@ -39,6 +39,14 @@ struct evmsg_ctx {
 static void
 __publish_cb(struct evhttp_request *req, void *arg)
 {
+	if (req == NULL) {
+		fprintf(stderr, "NULL req - evhttp_connection_fail?\n");
+		return;
+	} else if (req->response_code >= 300) {
+		fprintf(stderr, "%d: %s\n", req->response_code,
+		    req->response_code_line);
+		return;
+	}
 }
 
 static void
@@ -46,8 +54,12 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 {
 	struct evmsg_conn *conn = arg;
 	
-	if (req == NULL || req->evcon == NULL) {
-		/* XXX - how to handle errors? user callback with NULLs ? */
+	if (req == NULL) {
+		fprintf(stderr, "NULL req - evhttp_connection_fail?\n");
+		return;
+	} else if (req->response_code >= 300) {
+		fprintf(stderr, "%d: %s\n", req->response_code,
+		    req->response_code_line);
 		return;
 	}
 	/* Parse the multipart boundary, once. */
