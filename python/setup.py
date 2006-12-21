@@ -7,7 +7,7 @@ evmsg = Extension(name='evmsg',
                   include_dirs=[ '..', '../libevent' ],
                   extra_objects=[ '../evmsg.o' ],
                   library_dirs=[ '../libevent/.libs' ],
-                  libraries=[ 'evhttp', 'event', 'ssl', 'crypto', 'resolv' ]
+                  libraries=[ 'evhttp', 'ssl', 'crypto', 'resolv' ]
                   )
 
 setup(name='evmsg',
