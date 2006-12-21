@@ -5,7 +5,7 @@
 import httplib, optparse, re, sys, time, urllib
 
 def main():
-    op = optparse.OptionParser(usage='%prog [OPTIONS] URL|channel')
+    op = optparse.OptionParser(usage='%prog [OPTIONS] [URL|channel]')
     op.add_option('-q', dest='quiet', help='enable quiet output',
                   action='store_true')
     op.add_option('-s', dest='sender',
@@ -14,8 +14,8 @@ def main():
                   help='subscribe to messages of this type')
     opts, args = op.parse_args(sys.argv[1:])
     if not args:
-        op.error('missing URL or channel')
-
+        args.append('http://localhost:8888/msgbus/')
+    
     if not args[0].startswith('http'):
         url = 'http://localhost:8888/msgbus/%s' % args[0]
     else:
