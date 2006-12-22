@@ -128,7 +128,7 @@ msgbus_deliver(const char *channel, const char *sender, const char *type,
 				    strlen(sub->sender), 0) == 1) &&
 			    (sub->type == NULL ||
 				match_pattern_list(type, sub->type,
-				    strlen(sub->type), 0) == 0)) {
+				    strlen(sub->type), 0) == 1)) {
 				msg = _format_msg(NULL, sender, type,
 				    buf, len, (sub->req->minor == 1));
 				evhttp_send_reply_chunk(sub->req, msg);
