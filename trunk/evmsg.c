@@ -181,11 +181,11 @@ void
 evmsg_ctx_set_auth(struct evmsg_ctx *ctx,
     const char *username, const char *password)
 {
-	struct evbuffer *tmp;
+	struct evbuffer *tmp = evbuffer_new();
 	int len;
 
 	assert(username != NULL && password != NULL);
-	tmp = evbuffer_new();
+	free(ctx->auth);
 	len = evbuffer_add_printf(tmp, "%s:%s", username, password);
 	ctx->auth = malloc(6 + len * 2);
 	strcpy(ctx->auth, "Basic ");
