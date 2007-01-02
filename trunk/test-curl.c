@@ -25,7 +25,7 @@ main(int argc, char *argv[])
 	struct curl_slist *hdrs;
 	char *server = "localhost", *channel = "flood";
 	int c, i, port = 8888, use_ssl = 0;
-	char buf[BUFSIZ], errbuf[CURL_ERROR_SIZE];
+	char msg[128], url[BUFSIZ], errbuf[CURL_ERROR_SIZE];
 	useconds_t usecs = 1000000;
 
 
@@ -60,17 +60,17 @@ main(int argc, char *argv[])
 	if ((curl = curl_easy_init()) == NULL)
 		errx(1, "curl_easy_init");
 
-	snprintf(buf, sizeof(buf), "%s://%s:%d/msgbus/%s",
+	snprintf(url, sizeof(url), "%s://%s:%d/msgbus/%s",
 	    use_ssl ? "https" : "http", server, port, channel);
 	hdrs = curl_slist_append(NULL, "Content-Type: text/html");
 	
-	curl_easy_setopt(curl, CURLOPT_URL, buf);
+	curl_easy_setopt(curl, CURLOPT_URL, url);
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errbuf);
 	
 	for (i = 0; ; i++) {
-		snprintf(buf, sizeof(buf), "hello world %d!\n", i);
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, buf);
-		curl_easy_setopt(curl, CURLOPT_HTTPHEADER, hdrs);
+		snprintf(msg, sizeof(msg), "hello world %d!\n", i);
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, msg);
 		if (curl_easy_perform(curl) != 0)
 			warnx("%s", errbuf);
 		usleep(usecs);
