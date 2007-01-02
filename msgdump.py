@@ -14,13 +14,12 @@ def main():
                   help='subscribe to messages of this type')
     opts, args = op.parse_args(sys.argv[1:])
     if not args:
-        args.append('http://localhost:8888/msgbus/')
-    
-    if not args[0].startswith('http'):
-        url = 'http://localhost:8888/msgbus/%s' % args[0]
-    else:
+        url = 'http://localhost:8888/msgbus/'
+    elif args[0].startswith('http'):
         url = args[0]
-
+    else:
+        url = 'http://localhost:8888/msgbus/%s' % args[0]
+        
     if opts.sender or opts.type:
         url += '?' + urllib.urlencode(dict(filter(lambda x: x[1],
             (('sender', opts.sender), ('type', opts.type)))))
@@ -37,8 +36,10 @@ def main():
             # urllib only supports HTTP/1.0
             msg = httplib.HTTPMessage(f, 0)
             buf = f.read(int(msg['content-length']))
-            print '%s %s %s (%s)' % (time.time(), msg.get('from', '?'),
-                                     msg['content-type'], len(buf))
+            print '%s %s %s %s (%s)' % (time.time(),
+                                        msg['content-location'][8:],
+                                        msg.get('from', '?'),
+                                        msg['content-type'], len(buf))
             if not opts.quiet:
                 print `buf`
     except KeyboardInterrupt:
