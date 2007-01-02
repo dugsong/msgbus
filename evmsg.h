@@ -34,4 +34,23 @@ void evmsg_unsubscribe(void *handle);
 
 void evmsg_close(void);
 
+/* Re-entrant version of the interface. */
+typedef struct evmsg_ctx evmsg_ctx_t;
+
+evmsg_ctx_t *evmsg_ctx_open(const char *server, u_short port, int use_ssl);
+
+void evmsg_ctx_set_auth(evmsg_ctx_t *ctx,
+    const char *username, const char *password);
+
+int evmsg_ctx_publish(evmsg_ctx_t *ctx,
+    const char *channel, const char *type, struct evbuffer *msg);
+
+void *evmsg_ctx_subscribe(evmsg_ctx_t *ctx,
+    const char *channel, const char *type,const char *sender,
+    evmsg_subscribe_cb callback, void *arg);
+
+void evmsg_ctx_unsubscribe(evmsg_ctx_t *ctx, void *handle);
+
+void evmsg_ctx_close(evmsg_ctx_t **ctx);
+
 #endif /* EVMSG_H */
