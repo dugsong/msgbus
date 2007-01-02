@@ -18,6 +18,7 @@
 #include "evmsg.h"
 
 struct evmsg_conn {
+	struct evmsg_ctx	 *ctx;
 	struct event		  ev;
 	struct timeval		  tv;
 	struct evhttp_connection *evcon;
@@ -28,13 +29,14 @@ struct evmsg_conn {
 	int			  boundary_len;
 	TAILQ_ENTRY(evmsg_conn)	  next;
 };
+
 struct evmsg_ctx {
 	TAILQ_HEAD(, evmsg_conn)  conns;
 	char			 *server;
 	u_short			  port;
 	int			  use_ssl;
 	char 			 *auth;
-} ctx[1];
+} *static_ctx;
 
 static void
 __publish_cb(struct evhttp_request *req, void *arg)
@@ -109,6 +111,7 @@ static void
 __subscribe_open(struct evhttp_connection *evcon, void *arg)
 {
 	struct evmsg_conn *conn = arg;
+	struct evmsg_ctx *ctx = conn->ctx;
 	struct evhttp_request *req;
 
 	if (ctx->use_ssl)
@@ -139,9 +142,10 @@ __uri_escape(struct evbuffer *buf)
 	free(p);
 }
 
-void
-evmsg_open(const char *server, u_short port, int use_ssl)
+struct evmsg_ctx *
+evmsg_ctx_open(const char *server, u_short port, int use_ssl)
 {
+	struct evmsg_ctx *ctx = calloc(1, sizeof(*ctx));
 	struct evmsg_conn *conn;
 
 	if (server == NULL)
@@ -155,6 +159,7 @@ evmsg_open(const char *server, u_short port, int use_ssl)
 	/* First connection is for publishing */
 	TAILQ_INIT(&ctx->conns);
 	conn = calloc(1, sizeof(*conn));
+	conn->ctx = ctx;
 	conn->uri = evbuffer_new();
 	if (ctx->use_ssl)
 		conn->evcon = evhttp_connection_new_ssl(ctx->server, ctx->port);
@@ -162,10 +167,19 @@ evmsg_open(const char *server, u_short port, int use_ssl)
 		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
 	evhttp_connection_set_retries(conn->evcon, -1);
 	TAILQ_INSERT_HEAD(&ctx->conns, conn, next);
+
+	return (ctx);
 }
 
 void
-evmsg_set_auth(const char *username, const char *password)
+evmsg_open(const char *server, u_short port, int use_ssl)
+{
+	static_ctx = evmsg_ctx_open(server, port, use_ssl);
+}
+
+void
+evmsg_ctx_set_auth(struct evmsg_ctx *ctx,
+    const char *username, const char *password)
 {
 	struct evbuffer *tmp;
 	int len;
@@ -179,8 +193,15 @@ evmsg_set_auth(const char *username, const char *password)
 	evbuffer_free(tmp);
 }
 
+void
+evmsg_set_auth(const char *username, const char *password)
+{
+	evmsg_ctx_set_auth(static_ctx, username, password);
+}
+	
 int
-evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
+evmsg_ctx_publish(struct evmsg_ctx *ctx,
+    const char *channel, const char *type, struct evbuffer *msg)
 {
 	static char *buf;
 	static int len;
@@ -210,14 +231,22 @@ evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
 		    (char *)EVBUFFER_DATA(conn->uri)));
 }
 
+int
+evmsg_publish(const char *channel, const char *type, struct evbuffer *msg)
+{
+	return (evmsg_ctx_publish(static_ctx, channel, type, msg));
+}
+
 void *
-evmsg_subscribe(const char *channel, const char *type, const char *sender,
+evmsg_ctx_subscribe(struct evmsg_ctx *ctx,
+    const char *channel, const char *type, const char *sender,
     void (*callback)(const char *channel, const char *type, const char *sender,
 	struct evbuffer *buf, void *arg), void *arg)
 {
 	struct evmsg_conn *conn;
 	
 	conn = calloc(1, sizeof(*conn));
+	conn->ctx = ctx;
 	conn->uri = evbuffer_new();
 	conn->channel = strdup(channel);
 	evbuffer_add_printf(conn->uri, "/msgbus/%s?type=%s&sender=%s",
@@ -232,8 +261,17 @@ evmsg_subscribe(const char *channel, const char *type, const char *sender,
 	return ((void *)conn);
 }
 
+void *
+evmsg_subscribe(const char *channel, const char *type, const char *sender,
+    void (*callback)(const char *channel, const char *type, const char *sender,
+	struct evbuffer *buf, void *arg), void *arg)
+{
+	return (evmsg_ctx_subscribe(static_ctx,
+		    channel, type, sender, callback, arg));
+}
+
 void
-evmsg_unsubscribe(void *arg)
+evmsg_ctx_unsubscribe(struct evmsg_ctx *ctx, void *arg)
 {
 	struct evmsg_conn *conn = arg;
 
@@ -247,15 +285,28 @@ evmsg_unsubscribe(void *arg)
 }
 
 void
-evmsg_close(void)
+evmsg_unsubscribe(void *arg)
+{
+	evmsg_ctx_unsubscribe(static_ctx, arg);
+}
+
+void
+evmsg_ctx_close(struct evmsg_ctx **ctx)
 {
 	struct evmsg_conn *conn;
 
 	/* Shutdown all our connections. */
-	while ((conn = TAILQ_FIRST(&ctx->conns)) != NULL) {
-		evmsg_unsubscribe(conn);
+	while ((conn = TAILQ_FIRST(&ctx[0]->conns)) != NULL) {
+		evmsg_ctx_unsubscribe(ctx[0], conn);
 	}
-	free(ctx->auth);
-	free(ctx->server);
-	memset(ctx, 0, sizeof(*ctx));
+	free(ctx[0]->auth);
+	free(ctx[0]->server);
+	free(ctx[0]);
+	ctx[0] = NULL;
+}
+
+void
+evmsg_close(void)
+{
+	evmsg_ctx_close(&static_ctx);
 }
