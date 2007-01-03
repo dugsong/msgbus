@@ -360,8 +360,8 @@ msgbus_req_handler(struct evhttp_request *req, void *arg)
 			evbuffer_add_printf(buf, "<h1>Unauthorized</h1>");
 			evhttp_send_reply(req, 401, "Unauthorized", buf);
 		} else if (strncmp(req->uri, "/msgbus/", 8) == 0) {
-			char *channel = strdup(req->uri + 8);
-			channel = strsep(&channel, "?");
+			char *channel, *p = strdup(req->uri + 8);
+			channel = strsep(&p, "?");
 			msgbus_bus_handler(ctx, req, channel, user);
 			free(channel);
 		} else if (ctx->docroot != NULL) {

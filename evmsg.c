@@ -80,8 +80,10 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 		TAILQ_INIT(kv);
 		while ((p = evbuffer_readline(buf)) != NULL && p[0] != '\0') {
 			char *k = strsep(&p, ":");
-			if (p != NULL && (strcasecmp(k, "Content-Type") == 0 ||
-				strcasecmp(k, "From") == 0)) {
+			if (p != NULL &&
+			    (strcasecmp(k, "Content-Type") == 0 ||
+			     strcasecmp(k, "From") == 0 ||
+			     strcasecmp(k, "Content-Location") == 0)) {
 				p += strspn(p, " ");
 				evhttp_add_header(kv, k, p);
 			}
@@ -89,17 +91,16 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 		}
 		/*
 		 * XXX - assume msgbus' chunks correspond to multipart
-		 * boundaries (valid, but chummy with the implementation)
+		 * boundaries (too chummy with the server implementation?)
 		 */
 		EVBUFFER_LENGTH(buf) -= conn->boundary_len;
 		EVBUFFER_DATA(buf)[EVBUFFER_LENGTH(buf)] = '\0';
 		if (evhttp_find_header(kv, "Content-Type") != NULL) {
-			const char *chan = conn->channel;
-			if (*chan == '\0') {
-				chan = evhttp_find_header(kv,
-				    "Content-Location");
+			const char *p = conn->channel;
+			if (*p == '\0') {
+				p = evhttp_find_header(kv, "Content-Location");
 			}
-			(*conn->cb)(chan,
+			(*conn->cb)(p ? p : "",
 			    evhttp_find_header(kv, "Content-Type"),
 			    evhttp_find_header(kv, "From"), buf, conn->arg);
 		}
@@ -136,9 +137,13 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 static void
 __uri_escape(struct evbuffer *buf)
 {
-	char *p = evhttp_encode_uri((char *)EVBUFFER_DATA(buf));
+	char *p;
+	
+	evbuffer_add(buf, "", 1);
+	p = evhttp_encode_uri((char *)EVBUFFER_DATA(buf));
 	evbuffer_drain(buf, EVBUFFER_LENGTH(buf));
 	evbuffer_add_printf(buf, "%s", p);
+	evbuffer_add(buf, "", 1);
 	free(p);
 }
 
