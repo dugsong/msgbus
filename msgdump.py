@@ -30,6 +30,8 @@ def main():
     boundary = '--' + mp.match(hdrs['content-type']).group(1)
     
     print >>sys.stderr, 'subscribed to', url
+    cnt = 0
+    start = time.time()
     try:
         while 1:
             assert f.readline().strip() == boundary
@@ -40,10 +42,13 @@ def main():
                                         msg['content-location'][8:],
                                         msg.get('from', '?'),
                                         msg['content-type'], len(buf))
+            cnt += 1
             if not opts.quiet:
                 print `buf`
     except KeyboardInterrupt:
-        print >>sys.stderr, 'exiting at user request'
+        secs = time.time() - start
+        print >>sys.stderr, 'received %d msgs over %d secs (%.1f mps)' % \
+              (cnt, secs, float(cnt) / secs)
 
 if __name__ == '__main__':
     main()
