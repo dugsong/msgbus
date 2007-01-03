@@ -1,7 +1,5 @@
 
 - channel-based auth?
 
-- SSL (could do client-side now with a libcurl dependency)
-
 - lighttpd module? can't do Apache due to pre-forking...
 
