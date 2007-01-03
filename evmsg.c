@@ -248,7 +248,7 @@ evmsg_ctx_subscribe(struct evmsg_ctx *ctx,
 	conn = calloc(1, sizeof(*conn));
 	conn->ctx = ctx;
 	conn->uri = evbuffer_new();
-	if (channel == NULL || strcmp(channel, "*"))
+	if (channel == NULL || strcmp(channel, "*") == 0)
 		channel = "";
 	conn->channel = strdup(channel);
 	evbuffer_add_printf(conn->uri, "/msgbus/%s?type=%s&sender=%s",
