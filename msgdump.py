@@ -15,10 +15,13 @@ def main():
     opts, args = op.parse_args(sys.argv[1:])
     if not args:
         url = 'http://localhost:8888/msgbus/'
+        channel = ''
     elif args[0].startswith('http'):
         url = args[0]
+        channel = url.split('/')[-1]
     else:
         url = 'http://localhost:8888/msgbus/%s' % args[0]
+        channel = args[0]
         
     if opts.sender or opts.type:
         url += '?' + urllib.urlencode(dict(filter(lambda x: x[1],
@@ -38,8 +41,8 @@ def main():
             # urllib only supports HTTP/1.0
             msg = httplib.HTTPMessage(f, 0)
             buf = f.read(int(msg['content-length']))
-            print '%s %s %s %s (%s)' % (time.time(),
-                                        msg['content-location'][8:],
+            c = msg.get('content-location', '')[8:]
+            print '%s %s %s %s (%s)' % (time.time(), c or channel,
                                         msg.get('from', '?'),
                                         msg['content-type'], len(buf))
             cnt += 1
