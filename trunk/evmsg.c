@@ -99,6 +99,8 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 			const char *p = conn->channel;
 			if (*p == '\0') {
 				p = evhttp_find_header(kv, "Content-Location");
+				if (strncmp(p, "/msgbus/", 8) == 0)
+					p += 8;
 			}
 			(*conn->cb)(p ? p : "",
 			    evhttp_find_header(kv, "Content-Type"),
