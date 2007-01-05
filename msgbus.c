@@ -129,6 +129,33 @@ msgbus_deliver(struct msgbus_sub *sub,
 }
 
 static void
+msgbus_dispatch(const char *channel, const char *sender, const char *type,
+    void *buf, int len)
+{
+	struct msgbus_channel *chan, find = { .name = (char *)channel };
+	struct msgbus_sub *sub;
+	
+	if (msgbus_root != NULL) {
+		TAILQ_FOREACH(sub, &msgbus_root->subs, next) {
+			msgbus_deliver(sub, channel, sender, type, buf, len);
+		}
+	}
+	if ((chan = SPLAY_FIND(msgbus_channels, &msgbus_channels, &find))) {
+		TAILQ_FOREACH(sub, &chan->subs, next) {
+			if ((sub->sender == NULL || sender == NULL ||
+			     match_pattern_list(sender, sub->sender,
+				 strlen(sub->sender), 0) == 1) &&
+			    (sub->type == NULL ||
+			     match_pattern_list(type, sub->type,
+				 strlen(sub->type), 0) == 1)) {
+				msgbus_deliver(sub, NULL, sender, type,
+				    buf, len);
+			}
+		}
+	}
+}
+
+static void
 msgbus_sub_close(struct evhttp_connection *evcon, void *arg)
 {
 	struct msgbus_sub *sub = (struct msgbus_sub *)arg;
@@ -255,8 +282,6 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 	}
 	case EVHTTP_REQ_POST:
 	{
-		struct msgbus_channel *chan, c = { .name = (char *)channel };
-		struct msgbus_sub *sub;
 		const char *type = evhttp_find_header(req->input_headers,
 		    "Content-Type");
 		
@@ -266,27 +291,9 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 			    channel, sender ? sender : "*", type ? type : "*",
 			    (long)EVBUFFER_LENGTH(req->input_buffer));
 		}
-		if (msgbus_root != NULL) {
-			TAILQ_FOREACH(sub, &msgbus_root->subs, next) {
-				msgbus_deliver(sub, channel, sender, type,
-				    EVBUFFER_DATA(req->input_buffer),
-				    EVBUFFER_LENGTH(req->input_buffer));
-			}
-		}
-		if ((chan = SPLAY_FIND(msgbus_channels, &msgbus_channels, &c))) {
-			TAILQ_FOREACH(sub, &chan->subs, next) {
-				if ((sub->sender == NULL || sender == NULL ||
-					match_pattern_list(sender, sub->sender,
-					    strlen(sub->sender), 0) == 1) &&
-				    (sub->type == NULL ||
-					match_pattern_list(type, sub->type,
-					    strlen(sub->type), 0) == 1)) {
-					msgbus_deliver(sub, NULL, sender, type,
-					    EVBUFFER_DATA(req->input_buffer),
-					    EVBUFFER_LENGTH(req->input_buffer));
-				}
-			}
-		}
+		msgbus_dispatch(channel, type, sender,
+		    EVBUFFER_DATA(req->input_buffer),
+		    EVBUFFER_LENGTH(req->input_buffer));
 		evhttp_send_reply(req, HTTP_NOCONTENT, "OK", NULL);
 		break;
 	}
