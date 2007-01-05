@@ -59,7 +59,6 @@ def main():
 
     evmsg.open(hostname, port, scheme == 'https')
     if username and password:
-        print "set_auth", username, password
         evmsg.set_auth(username, password)
     sub = evmsg.subscribe(channel, opts.type, opts.sender, recv_msg, d)
     
