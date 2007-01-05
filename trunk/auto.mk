@@ -58,14 +58,14 @@ DPADD		+= ${_DPADD}
 .elif defined(SUBDIR)
 
 # XXX - gross recursion hack
-all clean cleandir depend test pylint:
-	@cd ${SUBDIR} && env -i `env | egrep -v 'SUBDIR| '` ${.MAKE} $@
+all clean cleandir depend:
+	@cd ${SUBDIR} && env -i `env | egrep -v 'SUBDIR| '` ${MAKE} $@
 
 .else
 
 ### all ${.TARGETS}:
 # XXX - only recurse certain targets
-all clean depend:
+all clean cleandir depend:
 .for var in LIBS PROGS SUBDIRS
 .  for val in ${${var}}
 	${MAKE} ${var:S/S$//}=${val} $@

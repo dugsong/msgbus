@@ -24,4 +24,6 @@ test-curl_LDADD=-lcurl
 
 NOMAN=		yes
 
+SUBDIRS=	python
+
 .include "auto.mk"
