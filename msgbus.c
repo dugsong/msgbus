@@ -28,6 +28,8 @@
 #include "match.h"
 #include "mimetype.h"
 
+#define MAX_CLIENT_BUFSIZ	(1000 * 1000)
+
 #define BOUNDARY_MARKER		"00MsgBus00"
 
 struct msgbus_ctx {
@@ -105,36 +107,24 @@ _format_msg(const char *channel, const char *sender, const char *type,
 }
 
 static void
-msgbus_deliver(const char *channel, const char *sender, const char *type,
+msgbus_deliver(struct msgbus_sub *sub,
+    const char *channel, const char *sender, const char *type,
     void *buf, int len)
 {
-	struct msgbus_channel *chan, find = { .name = (char *)channel };
-	struct msgbus_sub *sub;
 	struct evbuffer *msg;
-	
-	/* XXX - evbuffer_add_buffer() dirty swap requires new msg each time */
-	if (msgbus_root != NULL) {
-		TAILQ_FOREACH(sub, &msgbus_root->subs, next) {
-			msg = _format_msg(channel, sender, type, buf, len,
-			    (sub->req->minor == 1));
-			evhttp_send_reply_chunk(sub->req, msg);
-			evbuffer_free(msg);
-		}
-	}
-	if ((chan = SPLAY_FIND(msgbus_channels, &msgbus_channels, &find))) {
-		TAILQ_FOREACH(sub, &chan->subs, next) {
-			if ((sub->sender == NULL || sender == NULL ||
-				match_pattern_list(sender, sub->sender,
-				    strlen(sub->sender), 0) == 1) &&
-			    (sub->type == NULL ||
-				match_pattern_list(type, sub->type,
-				    strlen(sub->type), 0) == 1)) {
-				msg = _format_msg(NULL, sender, type,
-				    buf, len, (sub->req->minor == 1));
-				evhttp_send_reply_chunk(sub->req, msg);
-				evbuffer_free(msg);
-			}
-		}
+	int n;
+
+	n = evhttp_connection_write_pending(sub->req->evcon);
+	if (n >= MAX_CLIENT_BUFSIZ) {
+		fprintf(stderr, "dropping %s message on %s from %s to %s:%d",
+		    type, channel, sender,
+		    sub->req->remote_host, sub->req->remote_port);
+	} else {
+		/* XXX - evbuffer_add_buffer() dirty swap requires new msg */
+		msg = _format_msg(channel, sender, type,
+		    buf, len, (sub->req->minor == 1));
+		evhttp_send_reply_chunk(sub->req, msg);
+		evbuffer_free(msg);
 	}
 }
 
@@ -265,6 +255,8 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 	}
 	case EVHTTP_REQ_POST:
 	{
+		struct msgbus_channel *chan, c = { .name = (char *)channel };
+		struct msgbus_sub *sub;
 		const char *type = evhttp_find_header(req->input_headers,
 		    "Content-Type");
 		
@@ -274,9 +266,27 @@ msgbus_bus_handler(struct msgbus_ctx *ctx, struct evhttp_request *req,
 			    channel, sender ? sender : "*", type ? type : "*",
 			    (long)EVBUFFER_LENGTH(req->input_buffer));
 		}
-		msgbus_deliver(channel, sender, type,
-		    EVBUFFER_DATA(req->input_buffer),
-		    EVBUFFER_LENGTH(req->input_buffer));
+		if (msgbus_root != NULL) {
+			TAILQ_FOREACH(sub, &msgbus_root->subs, next) {
+				msgbus_deliver(sub, channel, sender, type,
+				    EVBUFFER_DATA(req->input_buffer),
+				    EVBUFFER_LENGTH(req->input_buffer));
+			}
+		}
+		if ((chan = SPLAY_FIND(msgbus_channels, &msgbus_channels, &c))) {
+			TAILQ_FOREACH(sub, &chan->subs, next) {
+				if ((sub->sender == NULL || sender == NULL ||
+					match_pattern_list(sender, sub->sender,
+					    strlen(sub->sender), 0) == 1) &&
+				    (sub->type == NULL ||
+					match_pattern_list(type, sub->type,
+					    strlen(sub->type), 0) == 1)) {
+					msgbus_deliver(sub, NULL, sender, type,
+					    EVBUFFER_DATA(req->input_buffer),
+					    EVBUFFER_LENGTH(req->input_buffer));
+				}
+			}
+		}
 		evhttp_send_reply(req, HTTP_NOCONTENT, "OK", NULL);
 		break;
 	}
