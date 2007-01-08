@@ -114,7 +114,15 @@ msgbus_deliver(struct msgbus_sub *sub,
 {
 	struct evbuffer *msg;
 	int n;
-
+	
+	if ((sub->sender != NULL && sender != NULL &&
+		match_pattern_list(sender, sub->sender,
+		    strlen(sub->sender), 0) != 1) ||
+	    (sub->type != NULL &&
+		match_pattern_list(type, sub->type,
+		    strlen(sub->type), 0) != 1)) {
+		return;
+	}
 	n = evhttp_connection_write_pending(sub->req->evcon);
 	if (n >= MAX_CLIENT_BUFSIZ) {
 		fprintf(stderr, "dropping %s %s (%d) "
@@ -143,15 +151,7 @@ msgbus_dispatch(const char *channel, const char *type, const char *sender,
 	}
 	if ((chan = SPLAY_FIND(msgbus_channels, &msgbus_channels, &find))) {
 		TAILQ_FOREACH(sub, &chan->subs, next) {
-			if ((sub->sender == NULL || sender == NULL ||
-			     match_pattern_list(sender, sub->sender,
-				 strlen(sub->sender), 0) == 1) &&
-			    (sub->type == NULL ||
-			     match_pattern_list(type, sub->type,
-				 strlen(sub->type), 0) == 1)) {
-				msgbus_deliver(sub, NULL, type, sender,
-				    buf, len);
-			}
+			msgbus_deliver(sub, NULL, type, sender, buf, len);
 		}
 	}
 }
