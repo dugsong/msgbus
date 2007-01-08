@@ -116,7 +116,7 @@ msgbus_deliver(struct msgbus_sub *sub,
 
 	n = evhttp_connection_write_pending(sub->req->evcon);
 	if (n >= MAX_CLIENT_BUFSIZ) {
-		fprintf(stderr, "dropping %s message on %s from %s to %s:%d",
+		fprintf(stderr, "dropping %s message on %s from %s to %s:%d\n",
 		    type, channel, sender,
 		    sub->req->remote_host, sub->req->remote_port);
 	} else {
