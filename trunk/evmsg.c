@@ -26,7 +26,7 @@ struct evmsg_conn {
 	struct evbuffer		 *uri;
 	evmsg_subscribe_cb	  cb;
 	void			 *arg;
-	int			  boundary_len;
+	char			 *boundary;
 	TAILQ_ENTRY(evmsg_conn)	  next;
 };
 
@@ -55,9 +55,17 @@ static void
 __subscribe_cb(struct evhttp_request *req, void *arg)
 {
 	struct evmsg_conn *conn = arg;
-	
-	if (req == NULL) {
+	struct evbuffer *msg, *buf = req->input_buffer;
+	struct evkeyvalq kv[1];
+	char *p;
+		
+	if (conn->cb == NULL) {
+		return;
+	} else if (req == NULL) {
 		fprintf(stderr, "NULL req - evhttp_connection_fail?\n");
+		return;
+	} else if (req->evcon == NULL) {
+		fprintf(stderr, "NULL evcon - evhttp_connection_done?\n");
 		return;
 	} else if (req->response_code >= 300) {
 		fprintf(stderr, "%d: %s\n", req->response_code,
@@ -65,49 +73,52 @@ __subscribe_cb(struct evhttp_request *req, void *arg)
 		return;
 	}
 	/* Parse the multipart boundary, once. */
-	if (conn->boundary_len == 0) {
+	if (conn->boundary == NULL) {
 		const char *t = evhttp_find_header(req->input_headers,
 		    "Content-Type");
+		/* XXX - multipart/x-mixed-replace;boundary=00MsgBus00 */
 		t = strchr(t, '=') + 1;
-		conn->boundary_len = 2 + strlen(t) + 1;
+		conn->boundary = malloc(2 + strlen(t) + 1);
+		sprintf(conn->boundary, "--%s", t);
 	}
-	if (conn->cb != NULL) {
-		/* Parse buffer for internal hdrs */
-		struct evbuffer *buf = req->input_buffer;
-		struct evkeyvalq kv[1];
-		char *p;
+	/* Parse buffer for internal hdrs */
+	TAILQ_INIT(kv);
+	while ((p = evbuffer_readline(buf)) != NULL && p[0] != '\0') {
+		char *k = strsep(&p, ":");
+		if (p != NULL &&
+		    (strcasecmp(k, "Content-Type") == 0 ||
+			strcasecmp(k, "From") == 0 ||
+			strcasecmp(k, "Content-Location") == 0)) {
+			p += strspn(p, " ");
+			evhttp_add_header(kv, k, p);
+		}
+		free(k);
+	}
+	/*
+	 * XXX - assume msgbus' chunks correspond to multipart
+	 * boundaries (too chummy with the server implementation?)
+	 */
+	if ((p = (char *)evbuffer_find(buf, (u_char *)conn->boundary,
+		 strlen(conn->boundary))) != NULL &&
+	    evhttp_find_header(kv, "Content-Type") != NULL) {
+		int n = (u_char *)p - EVBUFFER_DATA(buf);
 		
-		TAILQ_INIT(kv);
-		while ((p = evbuffer_readline(buf)) != NULL && p[0] != '\0') {
-			char *k = strsep(&p, ":");
-			if (p != NULL &&
-			    (strcasecmp(k, "Content-Type") == 0 ||
-			     strcasecmp(k, "From") == 0 ||
-			     strcasecmp(k, "Content-Location") == 0)) {
-				p += strspn(p, " ");
-				evhttp_add_header(kv, k, p);
-			}
-			free(k);
+		msg = evbuffer_new();
+		evbuffer_add(msg, EVBUFFER_DATA(buf), n);
+		evbuffer_expand(msg, n + 1);
+		EVBUFFER_DATA(msg)[n] = '\0';
+		
+		p = conn->channel;
+		if (*p == '\0') {
+			p = (char *)evhttp_find_header(kv, "Content-Location");
+			if (strncmp(p, "/msgbus/", 8) == 0)
+				p += 8;
 		}
-		/*
-		 * XXX - assume msgbus' chunks correspond to multipart
-		 * boundaries (too chummy with the server implementation?)
-		 */
-		EVBUFFER_LENGTH(buf) -= conn->boundary_len;
-		EVBUFFER_DATA(buf)[EVBUFFER_LENGTH(buf)] = '\0';
-		if (evhttp_find_header(kv, "Content-Type") != NULL) {
-			const char *p = conn->channel;
-			if (*p == '\0') {
-				p = evhttp_find_header(kv, "Content-Location");
-				if (strncmp(p, "/msgbus/", 8) == 0)
-					p += 8;
-			}
-			(*conn->cb)(p ? p : "",
-			    evhttp_find_header(kv, "Content-Type"),
-			    evhttp_find_header(kv, "From"), buf, conn->arg);
-		}
-		evhttp_clear_headers(kv);
+		(*conn->cb)(p ? p : "", evhttp_find_header(kv, "Content-Type"),
+		    evhttp_find_header(kv, "From"), msg, conn->arg);
+		evbuffer_free(msg);
 	}
+	evhttp_clear_headers(kv);
 }
 
 static void
@@ -117,10 +128,12 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 	struct evmsg_ctx *ctx = conn->ctx;
 	struct evhttp_request *req;
 
-	if (ctx->use_ssl)
-		conn->evcon = evhttp_connection_new_ssl(ctx->server, ctx->port);
-	else
+	if (ctx->use_ssl) {
+		conn->evcon = evhttp_connection_new_ssl(ctx->server,
+		    ctx->port);
+	} else {
 		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
+	}
 	evhttp_connection_set_timeout(conn->evcon, 0);
 	evhttp_connection_set_retries(conn->evcon, -1);
 	evhttp_connection_set_closecb(conn->evcon, __subscribe_open, conn);
@@ -168,10 +181,12 @@ evmsg_ctx_open(const char *server, u_short port, int use_ssl)
 	conn = calloc(1, sizeof(*conn));
 	conn->ctx = ctx;
 	conn->uri = evbuffer_new();
-	if (ctx->use_ssl)
-		conn->evcon = evhttp_connection_new_ssl(ctx->server, ctx->port);
-	else
+	if (ctx->use_ssl) {
+		conn->evcon = evhttp_connection_new_ssl(ctx->server,
+		    ctx->port);
+	} else {
 		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
+	}
 	evhttp_connection_set_retries(conn->evcon, -1);
 	TAILQ_INSERT_HEAD(&ctx->conns, conn, next);
 
