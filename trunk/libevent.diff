@@ -1,6 +1,6 @@
 Index: sample/Makefile.am
 ===================================================================
---- sample/Makefile.am	(revision 308)
+--- sample/Makefile.am	(revision 310)
 +++ sample/Makefile.am	(working copy)
 @@ -1,6 +1,6 @@
  AUTOMAKE_OPTIONS = foreign no-dependencies
@@ -12,7 +12,7 @@ Index: sample/Makefile.am
  
 Index: http.c
 ===================================================================
---- http.c	(revision 308)
+--- http.c	(revision 310)
 +++ http.c	(working copy)
 @@ -54,6 +54,13 @@
  #include <netdb.h>
@@ -933,7 +933,7 @@ Index: http.c
  		evhttp_add_header(headers, key, value);
  	}
  
-@@ -1857,6 +1995,36 @@
+@@ -1860,6 +1998,36 @@
  	return (http);
  }
  
@@ -970,7 +970,7 @@ Index: http.c
  void
  evhttp_free(struct evhttp* http)
  {
-@@ -1878,7 +2046,10 @@
+@@ -1881,7 +2049,10 @@
  		free(http_cb->what);
  		free(http_cb);
  	}
@@ -982,7 +982,7 @@ Index: http.c
  	free(http);
  }
  
-@@ -2045,7 +2216,7 @@
+@@ -2048,7 +2219,7 @@
  		event_err(1, "%s: strdup", __func__);
  	req->remote_port = evcon->port;
  
@@ -991,7 +991,7 @@ Index: http.c
  	
  	return (0);
  }
-@@ -2060,6 +2231,16 @@
+@@ -2063,6 +2234,16 @@
  	if (evcon == NULL)
  		return;
  
@@ -1010,7 +1010,7 @@ Index: http.c
  		evhttp_connection_set_timeout(evcon, http->timeout);
 Index: evhttp.h
 ===================================================================
---- evhttp.h	(revision 308)
+--- evhttp.h	(revision 310)
 +++ evhttp.h	(working copy)
 @@ -66,6 +66,13 @@
  struct evhttp *evhttp_start(const char *address, u_short port);
@@ -1048,21 +1048,9 @@ Index: evhttp.h
  /* The connection gets ownership of the request */
  int evhttp_make_request(struct evhttp_connection *evcon,
      struct evhttp_request *req,
-Index: test/Makefile.am
-===================================================================
---- test/Makefile.am	(revision 308)
-+++ test/Makefile.am	(working copy)
-@@ -1,6 +1,6 @@
- AUTOMAKE_OPTIONS = foreign no-dependencies
- 
--LDADD = ../libevent.la
-+LDADD = ../libevent.la ../libevhttp.la -lssl -lcrypto
- CPPFPLAGS = -I.. 
- CFLAGS = -I../compat @CFLAGS@
- 
 Index: http-internal.h
 ===================================================================
---- http-internal.h	(revision 308)
+--- http-internal.h	(revision 310)
 +++ http-internal.h	(working copy)
 @@ -56,7 +56,10 @@
  	int timeout;			/* timeout in seconds for events */
@@ -1098,9 +1086,21 @@ Index: http-internal.h
      void (*)(struct evhttp_connection *, void *), void *);
  
  /* response sending HTML the data in the buffer */
+Index: test/Makefile.am
+===================================================================
+--- test/Makefile.am	(revision 310)
++++ test/Makefile.am	(working copy)
+@@ -1,6 +1,6 @@
+ AUTOMAKE_OPTIONS = foreign no-dependencies
+ 
+-LDADD = ../libevent.la
++LDADD = ../libevent.la ../libevhttp.la -lssl -lcrypto
+ CPPFPLAGS = -I.. 
+ CFLAGS = -I../compat @CFLAGS@
+ 
 Index: Makefile.am
 ===================================================================
---- Makefile.am	(revision 308)
+--- Makefile.am	(revision 310)
 +++ Makefile.am	(working copy)
 @@ -21,7 +21,7 @@
  	WIN32-Prj/libevent.dsw WIN32-Prj/signal_test/signal_test.dsp \
