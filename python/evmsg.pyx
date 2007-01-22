@@ -99,7 +99,7 @@ cdef class subscribe:
     """subscribe(channel, type, sender, callback, *args) -> sub object
 
     Subscribe to a message stream. Returns a subscription object which
-    may be deleted to unsubscribe.
+    may be used to cancel the subscription later (via unsubscribe()).
 
     Arguments:
 
@@ -118,7 +118,8 @@ cdef class subscribe:
         self.handle = evmsg_subscribe(channel, type, sender,
                                       __subscribe_cb, <void *>self)
 
-    def __dealloc__(self):
+    def unsubscribe(self):
+        """Cancel this subscription."""
         evmsg_unsubscribe(self.handle)
 
 def close():
