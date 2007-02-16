@@ -52,6 +52,11 @@ __publish_cb(struct evhttp_request *req, void *arg)
 }
 
 static void
+__null_cb(struct evhttp_request *req, void *arg)
+{
+}
+
+static void
 __subscribe_cb(struct evhttp_request *req, void *arg)
 {
 	struct evmsg_conn *conn = arg;
@@ -138,7 +143,8 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 	evhttp_connection_set_retries(conn->evcon, -1);
 	evhttp_connection_set_closecb(conn->evcon, __subscribe_open, conn);
 
-	req = evhttp_request_new(__subscribe_cb, conn);
+	req = evhttp_request_new(__null_cb, conn);
+	evhttp_request_set_chunked_cb(req, __subscribe_cb);
 	evhttp_add_header(req->output_headers, "Host", ctx->server);
 	evhttp_add_header(req->output_headers, "User-Agent", "libevmsg");
 	if (ctx->auth != NULL) {
