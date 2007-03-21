@@ -406,11 +406,15 @@ usage(void)
 {
 	fprintf(stderr, "usage: msgbus [OPTIONS]\n\n"
 	    "Options:\n"
+#ifdef HAVE_OPENSSL
 	    "  -c CERTFILE   SSL PEM cert/key file (default: disabled)\n"
+#endif
 	    "  -d DIRECTORY  document root         (default: disabled)\n"
 	    "  -l ADDRESS    address to listen on  (default: any)\n"
 	    "  -p PORT       port to listen on     (default: 8888)\n"
+#ifdef HAVE_OPENSSL
 	    "  -P SSL_PORT   SSL port to listen on (default: 4444)\n"
+#endif
 	    "  -s SECRET     server password       (default: none)\n"
 	    "  -u USER       user/uid to run as    (default: none)\n"
 	    "  -v[v[v]]      verbose mode          (default: none)\n"
