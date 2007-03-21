@@ -1,7 +1,8 @@
 
 CFLAGS=		-g -Wall -O2 -I./libevent -I./libevent/compat
 
-event_LDADD=	-L./libevent/.libs -levent -levhttp -lresolv -lssl -lcrypto
+event_LDADD=	-L./libevent/.libs -levent
+#event_LDADD+=	-levhttp -lresolv -lssl -lcrypto
 
 LIBS=		evmsg
 evmsg_SRCS=	evmsg.c
@@ -10,6 +11,7 @@ NOPROFILE=	yes
 PROGS=		msgbus test-pub test-sub test-curl
 
 msgbus_SRCS=	match.c mimetype.c msgbus.c
+#msgbus_SRCS+=	strlcpy.c strlcat.c
 msgbus_LDADD=	${event_LDADD}
 
 test-pub_SRCS=	test-pub.c
