@@ -426,7 +426,10 @@ ignore_cb(int sig, short what, void *arg)
 int
 main(int argc, char **argv)
 {
-	struct evhttp *httpd, *httpsd;
+	struct evhttp *httpd;
+#ifdef HAVE_OPENSSL
+	struct evhttp *httpsd;
+#endif
 	struct rlimit fhqwhgads = { RLIM_INFINITY, RLIM_INFINITY };
 	struct passwd *pwd = NULL;
 	struct stat st;
