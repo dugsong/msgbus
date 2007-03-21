@@ -2,7 +2,8 @@
 CFLAGS=		-g -Wall -O2 -I./libevent -I./libevent/compat
 
 event_LDADD=	-L./libevent/.libs -levent
-#event_LDADD+=	-levhttp -lresolv -lssl -lcrypto
+#event_LDADD+=	-levhttp -lssl -lcrypto
+event_LDADD+=	-lresolv
 
 LIBS=		evmsg
 evmsg_SRCS=	evmsg.c
