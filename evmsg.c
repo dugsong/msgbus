@@ -195,7 +195,8 @@ evmsg_ctx_open(const char *server, u_short port, int use_ssl)
 		conn->evcon = evhttp_connection_new_ssl(ctx->server,
 		    ctx->port);
 #else
-		return (evmsg_ctx_close(ctx));
+		evmsg_ctx_close(&ctx);
+		return (ctx);
 #endif
 	} else {
 		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
