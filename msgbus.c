@@ -440,9 +440,11 @@ main(int argc, char **argv)
 	
 	while ((c = getopt(argc, argv, "c:d:l:p:P:s:u:vh?")) != -1) {
 		switch (c) {
+#ifdef HAVE_OPENSSL
 		case 'c':
 			ctx->certfile = optarg;
 			break;
+#endif
 		case 'd':
 			ctx->docroot = realpath(optarg, path);
 			break;
@@ -452,9 +454,11 @@ main(int argc, char **argv)
 		case 'p':
 			ctx->port = atoi(optarg);
 			break;
+#ifdef HAVE_OPENSSL
 		case 'P':
 			ctx->ssl_port = atoi(optarg);
 			break;
+#endif
 		case 's':
 			ctx->secret = optarg;
 			break;
@@ -501,6 +505,7 @@ main(int argc, char **argv)
 	} else
 		err(1, "evhttp_start");
 
+#ifdef HAVE_OPENSSL
 	/* Start HTTPS server. */
 	if (ctx->certfile != NULL) {
 		if ((httpsd = evhttp_start_ssl(ctx->address, ctx->ssl_port,
@@ -512,6 +517,7 @@ main(int argc, char **argv)
 		} else
 			err(1, "evhttp_start_ssl");
 	}
+#endif
 	if (pwd != NULL) {
 		warnx("uid %d -> %d, gid %d -> %d",
 		    getuid(), pwd->pw_uid, getgid(), pwd->pw_gid);
