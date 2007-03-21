@@ -133,10 +133,13 @@ __subscribe_open(struct evhttp_connection *evcon, void *arg)
 	struct evmsg_ctx *ctx = conn->ctx;
 	struct evhttp_request *req;
 
+#ifdef HAVE_OPENSSL
 	if (ctx->use_ssl) {
 		conn->evcon = evhttp_connection_new_ssl(ctx->server,
 		    ctx->port);
-	} else {
+	} else
+#endif
+	{
 		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
 	}
 	evhttp_connection_set_timeout(conn->evcon, 0);
@@ -188,8 +191,12 @@ evmsg_ctx_open(const char *server, u_short port, int use_ssl)
 	conn->ctx = ctx;
 	conn->uri = evbuffer_new();
 	if (ctx->use_ssl) {
+#ifdef HAVE_OPENSSL
 		conn->evcon = evhttp_connection_new_ssl(ctx->server,
 		    ctx->port);
+#else
+		return (evmsg_ctx_close(ctx));
+#endif
 	} else {
 		conn->evcon = evhttp_connection_new(ctx->server, ctx->port);
 	}
