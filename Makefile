@@ -1,5 +1,5 @@
 
-CFLAGS=		-g -Wall -O2 -I./libevent -I./libevent/compat
+CFLAGS=		-g -Wall -O2 -I. -I./libevent -I./libevent/compat
 
 event_LDADD=	-L./libevent/.libs -levent
 #event_LDADD+=	-levhttp -lssl -lcrypto
@@ -12,7 +12,7 @@ NOPROFILE=	yes
 PROGS=		msgbus test-pub test-sub test-curl
 
 msgbus_SRCS=	match.c mimetype.c msgbus.c
-#msgbus_SRCS+=	strlcpy.c strlcat.c
+msgbus_SRCS+=	strlcpy.c strlcat.c
 msgbus_LDADD=	${event_LDADD}
 
 test-pub_SRCS=	test-pub.c

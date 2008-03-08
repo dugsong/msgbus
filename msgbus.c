@@ -123,7 +123,7 @@ msgbus_deliver(struct msgbus_sub *sub,
 		    strlen(sub->type), 0) != 1)) {
 		return;
 	}
-	n = evhttp_connection_write_pending(sub->req->evcon);
+	n = EVBUFFER_LENGTH(sub->req->output_buffer);
 	if (n >= MAX_CLIENT_BUFSIZ) {
 		fprintf(stderr, "dropping %s %s (%d) "
 		    "from %s to %s:%d (%s)\n", channel, type, len, sender,
