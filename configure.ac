@@ -8,8 +8,6 @@ AC_PROG_CC
 AC_HEADER_STDC
 AM_PROG_LIBTOOL
 AC_CANONICAL_HOST
-
-AC_CHECK_HEADERS(stdio.h signal.h unistd.h math.h time.h sys/types.h)
 AC_REPLACE_FUNCS(strlcat strlcpy)
 
 case "$host" in
@@ -23,7 +21,6 @@ case "$host" in
     LDFLAGS="$LDFLAGS --strip-all"
     AC_DEFINE(OS_WIN32, 1, [compiling under windows])
     AC_DEFINE(WIN32_LEAN_AND_MEAN, 1, [fast code generation])
-    AC_MSG_WARN([You are building under Windows, be sure you are following README.win32])
     ;;
   *darwin* | *macos10*)
     OS="bsd"
@@ -38,7 +35,6 @@ case "$host" in
     fi
     AC_DEFINE(OS_BSD, 1, [compiling under bsd])
     AC_DEFINE(BIND_8_COMPAT, 1, [enable bind8 compatibility])
-    AC_MSG_WARN([You are building under Darwin/OS X, be sure you are following README.macosx])
     ;;
   *bsd*)
     OS="bsd"
@@ -47,7 +43,6 @@ case "$host" in
   *)
     OS="bsd"
     AC_DEFINE(OS_BSD, 1, [compiling under unknown, assuming BSD])
-    AC_MSG_WARN([You are using an unsupported OS, assuming BSD])
     ;;
 esac
 
