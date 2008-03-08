@@ -279,19 +279,31 @@ evmsg_ctx_subscribe(struct evmsg_ctx *ctx,
     void (*callback)(const char *channel, const char *type, const char *sender,
 	struct evbuffer *buf, void *arg), void *arg)
 {
+	char *qs;
 	struct evmsg_conn *conn;
 	
 	conn = calloc(1, sizeof(*conn));
 	conn->ctx = ctx;
 	conn->uri = evbuffer_new();
+	conn->cb = callback;
+	conn->arg = arg;
+
 	if (channel == NULL || strcmp(channel, "*") == 0)
 		channel = "";
 	conn->channel = strdup(channel);
-	evbuffer_add_printf(conn->uri, "/msgbus/%s?type=%s&sender=%s",
-	    channel, type ? type : "*", sender ? sender : "*");
-	__uri_escape(conn->uri);
-	conn->cb = callback;
-	conn->arg = arg;
+
+	qs = evhttp_encode_uri(channel);
+	evbuffer_add_printf(conn->uri, "/msgbus/%s?", qs);
+	free(qs);
+
+	qs = evhttp_encode_uri(type ? type : "*");
+	evbuffer_add_printf(conn->uri, "type=%s&", qs);
+	free(qs);
+
+	qs = evhttp_encode_uri(sender ? sender : "*");
+	evbuffer_add_printf(conn->uri, "sender=%s", qs);
+	free(qs);
+
 	TAILQ_INSERT_TAIL(&ctx->conns, conn, next);
 	
 	__subscribe_open(NULL, conn);
