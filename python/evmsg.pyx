@@ -42,7 +42,7 @@ cdef extern from "evmsg.h":
 
 
 cdef void __subscribe_cb(char *channel, char *type, char *sender,
-                         evbuffer *buf, void *arg):
+                         evbuffer *buf, void *arg) with gil:
     sub = <object>arg
     if sender == NULL:
         s = None
