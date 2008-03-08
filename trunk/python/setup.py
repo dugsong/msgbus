@@ -4,10 +4,9 @@ from distutils.core import setup, Extension
 
 evmsg = Extension(name='evmsg',
                   sources=[ 'evmsg.c' ],
-                  include_dirs=[ '..', '../libevent' ],
-                  extra_objects=[ '../evmsg.o' ],
-                  library_dirs=[ '../libevent/.libs' ],
-                  libraries=[ 'evhttp', 'ssl', 'crypto', 'resolv' ]
+                  include_dirs=[ '..', '../src' ],
+                  library_dirs=[ '../src/.libs' ],
+                  libraries=[ 'event_core', 'event_extra', 'evmsg', 'ssl', 'crypto', 'resolv' ]
                   )
 
 setup(name='evmsg',
