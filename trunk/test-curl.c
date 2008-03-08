@@ -47,7 +47,7 @@ main(int argc, char *argv[])
 			server = optarg;
 			break;
 		case 'p':
-			port = atoi(argv[1]);
+			port = atoi(optarg);
 			break;
 		case 'r':
 			usecs = 1000000 / atoi(optarg);
