@@ -27,6 +27,17 @@ test-pub, test-sub
 	connections by the test subscriber, or watch the messages at
 	http://localhost:8888/msgbus/flood
 
+for a quick test:
+
+1. start msgbus
+
+2. point your browser to http://localhost:8888/msgbus/foo
+
+3. try the following command a few times while watching your browser:
+
+   curl http://localhost:8888/msgbus/foo -H 'Content-Type: text/html' \
+        --data-binary "<h1>hello world `date`</h1>"
+
 quick protocol details:
 
 to publish JPEGs as messages on the 'foo' channel:
