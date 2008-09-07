@@ -1,4 +1,4 @@
-AC_INIT([msgbus], [0.1], [dugsong@monkey.org])
+AC_INIT([msgbus], [0.1], [msgbus@googlegroups.com])
 AC_CONFIG_SRCDIR(src/msgbus.c)
 AC_PREREQ(2.59)
 AM_INIT_AUTOMAKE
