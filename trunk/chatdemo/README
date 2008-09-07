@@ -1,3 +1,6 @@
 
 ported from http://www.subbu.org/weblogs/main/2006/04/dissecting_ajax_1.html
 
+possible Safari fix?
+http://github.com/drogus/jquery-upload-progress/commit/cc8ebce8acbb54febb3d24c7a77118c1501a922f
+
