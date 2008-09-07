@@ -1,4 +1,4 @@
-SUBDIRS		= src python
+SUBDIRS		= chatdemo src python
 
 EXTRA_DIST	= LICENSE
 
