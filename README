@@ -1,6 +1,12 @@
+
+msgbus
+------
+
 lightweight, evented HTTP/HTTPS publish/subscribe message bus.
 implements scalable server push via HTTP multipart/x-mixed-replace for
 local or remote messaging, and a minimal (optional) webserver.
+
+http://msgbus.googlecode.com/
 
 what's here:
 
