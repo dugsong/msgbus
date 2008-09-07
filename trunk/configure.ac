@@ -2,50 +2,52 @@ AC_INIT([msgbus], [0.1], [dugsong@monkey.org])
 AC_CONFIG_SRCDIR(src/msgbus.c)
 AC_PREREQ(2.59)
 AM_INIT_AUTOMAKE
-AC_CONFIG_HEADERS(config.h)
+AM_CONFIG_HEADER(config.h)
 
 AC_PROG_CC
 AC_HEADER_STDC
 AM_PROG_LIBTOOL
-AC_CANONICAL_HOST
+AM_PATH_PYTHON
+AM_CONDITIONAL(HAVE_PYTHON, [test "x$PYTHON" != "x"])
 AC_REPLACE_FUNCS(strlcat strlcpy)
 
-case "$host" in
-  *linux*)
-    OS="linux"
-    AC_DEFINE(OS_LINUX, 1, [compiling under linux])
-    ;;
-  *cygwin* | *mingw*)
-    OS="win32"
-    CFLAGS="$CFLAGS -mno-cygwin"
-    LDFLAGS="$LDFLAGS --strip-all"
-    AC_DEFINE(OS_WIN32, 1, [compiling under windows])
-    AC_DEFINE(WIN32_LEAN_AND_MEAN, 1, [fast code generation])
-    ;;
-  *darwin* | *macos10*)
-    OS="bsd"
-    if test -d /opt/local ; then
-      PATH="/opt/local/bin:$PATH"
-      CFLAGS="$CFLAGS -I/opt/local/include"
-      LDFLAGS="$LDFLAGS -L/opt/local/lib"
-    elif test -d /sw ; then
-      PATH="/sw/bin:$PATH"
-      CFLAGS="$CFLAGS -I/sw/include"
-      LDFLAGS="$LDFLAGS -L/sw/lib"
-    fi
-    AC_DEFINE(OS_BSD, 1, [compiling under bsd])
-    AC_DEFINE(BIND_8_COMPAT, 1, [enable bind8 compatibility])
-    ;;
-  *bsd*)
-    OS="bsd"
-    AC_DEFINE(OS_BSD, 1, [compiling under bsd])
-    ;;
+# Checks for libevent
+AC_MSG_CHECKING(for libevent)
+AC_ARG_WITH(libevent,
+[  --with-libevent=DIR     use libevent in DIR],
+[ case "$withval" in
+  yes|no)
+     AC_MSG_RESULT(no)
+     ;;
   *)
-    OS="bsd"
-    AC_DEFINE(OS_BSD, 1, [compiling under unknown, assuming BSD])
-    ;;
-esac
+     AC_MSG_RESULT($withval)
+     if test -f $withval/include/event.h -a -f $withval/lib/libevent.a; then
+        owd=`pwd`
+        if cd $withval; then withval=`pwd`; cd $owd; fi
+	EVENTINC="-I$withval/include"
+	EVENTLIB="-L$withval/lib -levent"
+     elif test -f $withval/event.h -a -f $withval/libevent.a; then
+        owd=`pwd`
+        if cd $withval; then withval=`pwd`; cd $owd; fi
+	EVENTINC="-I$withval"
+	EVENTLIB="-L$withval -levent"
+     else
+        AC_ERROR(event.h or libevent.a not found in $withval)
+     fi
+     ;;
+  esac ],
+[ if test -f /usr/include/event.h -a -f /usr/lib/libevent.a; then
+     EVENTLIB="-levent"
+  elif test -f ${prefix}/include/event.h -a -f ${prefix}/lib/libevent.a; then
+     EVENTINC="-I${prefix}/include"
+     EVENTLIB="-L${prefix}/lib -levent"
+  else
+     AC_MSG_RESULT(no)
+     AC_ERROR(libevent not found)
+  fi
+  AC_MSG_RESULT(yes) ]
+)
+AC_SUBST(EVENTINC)
+AC_SUBST(EVENTLIB)
 
-AC_SUBST(OS)
-
-AC_OUTPUT([Makefile src/Makefile python/Makefile])
+AC_OUTPUT([Makefile src/Makefile python/Makefile python/setup.py])

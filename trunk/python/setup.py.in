@@ -4,13 +4,13 @@ from distutils.core import setup, Extension
 
 evmsg = Extension(name='evmsg',
                   sources=[ 'evmsg.c' ],
-                  include_dirs=[ '..', '../src' ],
-                  library_dirs=[ '../src/.libs' ],
-                  libraries=[ 'event_core', 'event_extra', 'evmsg', 'ssl', 'crypto' ]
+                  include_dirs=[ '..', '../src', '@EVENTINC@'[2:] ],
+                  library_dirs=[ '../src', '../src/.libs', '@EVENTLIB@'.split()[0][2:] ],
+                  libraries=[ 'event', 'evmsg' ]
                   )
 
 setup(name='evmsg',
-      version='0.1',
+      version='@VERSION@',
       author='Dug Song',
       author_email='dugsong@monkey.org',
       description='msgbus event library',
