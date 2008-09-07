@@ -21,6 +21,7 @@ msgsend, msgdump
 chatdemo
 	simple interactive AJAX + COMET webchat demo - e.g. 
 	./msgbus -d chatdemo and browse to http://localhost:8888/
+	XXX - needs port to Safari...
 
 test-pub, test-sub
 	test publisher can flood messages to thousands of parallel
