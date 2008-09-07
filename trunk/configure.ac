@@ -50,4 +50,4 @@ AC_ARG_WITH(libevent,
 AC_SUBST(EVENTINC)
 AC_SUBST(EVENTLIB)
 
-AC_OUTPUT([Makefile src/Makefile python/Makefile python/setup.py])
+AC_OUTPUT([Makefile chatdemo/Makefile src/Makefile python/Makefile python/setup.py])
