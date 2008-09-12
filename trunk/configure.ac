@@ -37,7 +37,9 @@ AC_ARG_WITH(libevent,
      ;;
   esac ],
 [ if test -f /usr/include/event.h -a -f /usr/lib/libevent.a; then
-     EVENTLIB="-levent"
+     # XXX - setup.py.in cruft
+     EVENTINC="-I/usr/include"
+     EVENTLIB="-L/usr/lib -levent"
   elif test -f ${prefix}/include/event.h -a -f ${prefix}/lib/libevent.a; then
      EVENTINC="-I${prefix}/include"
      EVENTLIB="-L${prefix}/lib -levent"
