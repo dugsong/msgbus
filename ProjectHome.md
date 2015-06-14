@@ -1,0 +1,93 @@
+implements scalable server push via HTTP multipart/x-mixed-replace for
+local or remote messaging, and a minimal (optional) webserver.
+
+what's here:
+
+msgbus
+> single-process HTTP/HTTPS message bus / webserver scaling to
+> thousands of persistent connections at hundreds of messages
+> per second. supports both HTTP/1.0 and HTTP/1.1.
+
+libevmsg
+> evented client publish/subscribe API. requires libevent.
+
+msgsend, msgdump
+> trivial Python demo clients
+
+chatdemo
+> simple interactive AJAX + COMET webchat demo - e.g.
+> ./msgbus -d chatdemo and browse to http://localhost:8888/
+
+test-pub, test-sub
+> test publisher can flood messages to thousands of parallel
+> connections by the test subscriber, or watch the messages at
+> http://localhost:8888/msgbus/flood
+
+quick protocol details:
+
+to publish JPEGs as messages on the 'foo' channel:
+
+> POST /msgbus/foo HTTP/1.0
+> Content-Type: image/jpeg
+> Content-Length: 342
+> ...
+
+to subscribe to all messages the 'foo' channel:
+
+> GET /msgbus/foo HTTP/1.0
+
+matching messages are returned in server-push mode, e.g.
+
+> HTTP/1.0 200 OK
+> Content-Type: multipart/x-mixed-replace;boundary=XXX
+
+> --XXX
+> Content-Type: image/jpeg
+> Content-Length: 320
+> ...
+> --XXX
+> Content-Type: text/html
+> Content-Length: 53
+> ...
+
+or for HTTP/1.1:
+
+> HTTP/1.1 200 OK
+> Content-Type: multipart/x-mixed-replace;boundary=XXX
+> Transfer-Encoding: chunked
+
+> da
+> --XXX
+> Content-Type: image/jpeg
+> ...
+> 2b
+> -XXX
+> Content-Type: application/x-whatever
+> ...
+
+to subscribe to only text and image messages on the 'foo' channel:
+
+> GET /msgbus/foo?type=text/**,image/** HTTP/1.1
+
+to subscribe to all messages:
+
+> GET /msgbus/ HTTP/1.0
+
+> HTTP/1.0 200 OK
+> Content-Type: multipart/x-mixed-replace;boundary=XXX
+> Transfer-Encoding: chunked
+
+> --XXX
+> From: dugsong
+> Content-Location: /msgbus/foo
+> Content-Type: text/plain
+> Content-Length: 6
+
+> hello
+> --XXX
+> Content-Location: /msgbus/bar
+> Content-Type: application/octet-stream
+> Content-Length: 1035
+
+> ...
+
